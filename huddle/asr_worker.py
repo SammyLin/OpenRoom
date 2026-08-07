@@ -33,6 +33,9 @@ class WorkerConfig:
     model: str = "Qwen/Qwen3-ASR-0.6B"
     language: str | None = None  # None = 讓模型自己判斷（中英夾雜需要）
     chunk_sec: float = CHUNK_SEC
+    # 直覺上「切在講話停頓」(energy) 應該比「每 chunk_sec 硬切」(fixed) 好，實測相反：
+    # energy 的 WER 更差而且延遲 P95 爆到 4.3 秒。見 docs/measurements.md。
+    endpointing: str = "fixed"
 
 
 def _common_prefix_len(a: str, b: str) -> int:
@@ -64,13 +67,16 @@ def run(cfg: WorkerConfig, audio_q: mp.Queue, out_q: mp.Queue) -> None:
         # 模型權重留在 process 內，真正的 state 初始化就很快。
         t0 = time.monotonic()
         warm = st.init_streaming(model=cfg.model, chunk_size_sec=cfg.chunk_sec,
-                                 language=cfg.language)
+                                 language=cfg.language,
+                                 endpointing_mode=cfg.endpointing)
         st.feed_audio(np.zeros(int(SAMPLE_RATE * cfg.chunk_sec), dtype=np.float32), warm)
         del warm
 
         state = st.init_streaming(model=cfg.model, chunk_size_sec=cfg.chunk_sec,
-                                  language=cfg.language)
+                                  language=cfg.language,
+                                  endpointing_mode=cfg.endpointing)
         _emit(out_q, {"type": "ready", "engine": "qwen-mlx", "model": cfg.model,
+                      "endpointing": cfg.endpointing,
                       "sample_rate": SAMPLE_RATE,
                       "warmup_sec": round(time.monotonic() - t0, 1)})
     except Exception as exc:  # 載入失敗要吵，不能降級成假資料

@@ -163,10 +163,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", default="Qwen/Qwen3-ASR-0.6B")
     ap.add_argument("--language", default=None, help="en / zh…，不給就自動判斷")
     ap.add_argument("--chunk-sec", type=float, default=CHUNK_SEC)
+    ap.add_argument("--endpointing", default="fixed", choices=["energy", "fixed"])
     ap.add_argument("--runs-dir", type=Path, default=RUNS)
     args = ap.parse_args(argv)
 
-    cfg = WorkerConfig(model=args.model, language=args.language, chunk_sec=args.chunk_sec)
+    cfg = WorkerConfig(model=args.model, language=args.language,
+                       chunk_sec=args.chunk_sec, endpointing=args.endpointing)
     try:
         asyncio.run(serve(args.host, args.port, cfg, args.runs_dir))
     except KeyboardInterrupt:

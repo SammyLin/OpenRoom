@@ -37,8 +37,50 @@ Ground truth 是 YouTube **自動**字幕，本身就有錯，所以 WER 只能�
    5 秒、WER 掉到 60%。**這就是舊版的死亡螺旋，現在有數字了。**
 
 WER 在 26–32% 之間，離 12% 的 gate 很遠。錯誤分布裡**插入**最多（28 / 40 / 79），
-來源是 streaming 的重複輸出（同一句話講兩次），不是聽錯。下一步的槓桿在
-`finalization_mode` / `unfixed_token_num` / `detect_repetition`，不在換模型。
+來源是 streaming 的重複輸出（同一句話講兩次），不是聽錯。
+
+## endpointing：energy 比 fixed 差（否定結果）
+
+假設是：`fixed` 每秒硬切會切在字中間，造成逐字稿破碎和邊界重複；改成 `energy`
+（切在能量低點，也就是講話停頓）應該會好。**實測相反**，同樣前 120 秒、chunk 1.0：
+
+| endpointing | partial P95 | final P95 | WER |
+|---|---|---|---|
+| **fixed** | **360 ms** | **367 ms** | **32.5%** ← 預設 |
+| energy | 4293 ms | 4686 ms | 34.2% |
+
+energy 模式會等到偵測到停頓才切，開會的人講話少有乾淨停頓，於是一塊拖到很長，
+單次推論時間跟著爆掉，延遲 P95 4.3 秒。WER 也沒有變好。維持 `fixed`。
+
+## 全長跑：25 分鐘，延遲不漂移
+
+| | 前 120 秒 | 全長 1509.7 秒 |
+|---|---|---|
+| partial P95 | 362 ms | **381 ms** |
+| final P95 | 363 ms | **382 ms** |
+| WER | 32.5% | **29.4%** |
+
+事件 1441 個 final、1509 個 partial，沒有 `gap`、沒有 `error`、沒有丟幀。
+
+**這是最重要的一個數字**：25 分鐘後的 P95 跟 2 分鐘時一樣。舊版的死法是「越講越
+落後」——延遲會隨時間單向增長。這裡沒有，代表推論確實沒有卡在收音路徑上。
+
+## WER 還差得遠
+
+29.4%，gate 是 12%（而且 gate 講的是繁中人工逐字稿，這裡是英文自動字幕，標準更寬）。
+逐字稿看得懂但品質差，典型錯誤：
+
+    ref:  Hey everyone, welcome to this week's security policies weekly meeting.
+    hyp:  The. Hey everyone. Welcome this week. Security. Security policies weekly meet.
+
+三種錯：邊界重複（`Security. Security`）、破碎成短句、無中生有的填充詞（`The.` `I.` `A.`）。
+
+還沒試的槓桿，依預估效益排序：
+
+1. **換大一點的模型**——現在是 `Qwen3-ASR-0.6B`，是這個家族最小的
+2. `unfixed_token_num` / `unfixed_chunk_num`——控制尾巴保留多少可改寫空間，直接對應邊界重複
+3. `context` 餵會議專有名詞（人名、`fastboot` 這種被聽成 `fast food` 的字）
+4. `finalization_mode` / `enable_tail_refine`
 
 ## 尚未量測
 

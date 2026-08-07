@@ -39,13 +39,27 @@ socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料�
 
 ## 施工順序
 
-1. **eval harness** ← 現在在這裡
-2. 音訊擷取 → WS → 落地存檔（先證明收得到音）
-3. Qwen3-ASR MLX（獨立 process）→ 過 WER gate
+1. ~~**eval harness**~~ 完成
+2. ~~音訊 → WS → 落地存檔~~ 完成（WS 端完成；macOS 系統音訊擷取待做）
+3. **Qwen3-ASR MLX（獨立 process）** ← 現在在這裡。延遲 gate 已過，WER 還沒
 4. pyannote（獨立 process）→ 過 DER gate
 5. 前端：逐字稿 + 講者
 6. LLM 層：topic / sentiment / 建議 prompt / 修正
 7. 匯出 / annotations
+
+## 跑起來
+
+```bash
+uv venv --python 3.11 && source .venv/bin/activate
+uv pip install -e '.[eval,dev]' 'mlx-qwen3-asr>=0.3.5'
+
+python -m huddle.server --language en     # 不給 --language 就自動判斷（中英夾雜用這個）
+```
+
+Server 會先預熱模型（第一次要編譯 Metal kernel，約 46 秒），**預熱完才送 `ready`**。
+在那之前送音訊會收到 `error`，不會被靜靜吞掉。
+
+錄音、事件、逐字稿都寫進 `runs/<時間>-<meeting_id>/`。
 
 ## eval harness
 

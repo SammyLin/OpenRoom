@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# 語料與評測產物：大檔，不進版控
+corpus/
+runs/

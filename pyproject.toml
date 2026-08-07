@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "huddle"
+version = "0.1.0"
+description = "單機即時會議轉錄工具（Apple Silicon）"
+requires-python = ">=3.11,<3.13"
+authors = [{ name = "Sammy Lin" }]
+dependencies = []
+
+[project.optional-dependencies]
+# 評測工具鏈。yt-dlp 與 ffmpeg 走 CLI，不進 Python 相依。
+eval = [
+  "websockets>=12.0",
+  "jiwer>=3.0",
+]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["eval*", "huddle*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

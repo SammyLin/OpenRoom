@@ -41,11 +41,15 @@ socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料�
 
 1. ~~**eval harness**~~ 完成
 2. ~~音訊 → WS → 落地存檔~~ 完成（WS 端完成；macOS 系統音訊擷取待做）
-3. **Qwen3-ASR MLX（獨立 process）** ← 現在在這裡。延遲 gate 已過，WER 還沒
-4. pyannote（獨立 process）→ 過 DER gate
-5. 前端：逐字稿 + 講者
-6. LLM 層：topic / sentiment / 建議 prompt / 修正
-7. 匯出 / annotations
+3. ~~Qwen3-ASR MLX（獨立 process）~~ 延遲 gate 已過，**WER 還沒**（29.4%，gate 12%）
+4. ~~前端：逐字稿 + 健康面板~~ 完成
+5. ~~即時分析層（面試／討論會議）~~ 完成，含匯出逐字稿
+6. **WER** ← 現在在這裡。換大模型、調 `unfixed_token_num`、餵 `context`
+7. pyannote（獨立 process）→ 過 DER gate，前端補講者
+8. macOS 系統音訊擷取（現在只能靠瀏覽器分享分頁音訊，錄不到 Teams 桌面版）
+
+原本排在最後的 LLM 層提前做了：逐字稿只是原料，**「一邊開會一邊給補充資料與追問建議」
+才是這個工具存在的理由**，先把它跑起來才知道逐字稿要多準。
 
 ## 跑起來
 
@@ -54,12 +58,32 @@ uv venv --python 3.11 && source .venv/bin/activate
 uv pip install -e '.[eval,dev]' 'mlx-qwen3-asr>=0.3.5'
 
 python -m huddle.server --language en     # 不給 --language 就自動判斷（中英夾雜用這個）
+
+cd app && npm install && npm run dev      # 前端 → http://localhost:5173
 ```
 
 Server 會先預熱模型（第一次要編譯 Metal kernel，約 46 秒），**預熱完才送 `ready`**。
 在那之前送音訊會收到 `error`，不會被靜靜吞掉。
 
-錄音、事件、逐字稿都寫進 `runs/<時間>-<meeting_id>/`。
+錄音寫進 `runs/<時間>-<meeting_id>/`。
+
+前端選「系統音訊」會走瀏覽器的分享畫面對話框，**要勾「同時分享分頁音訊」**，
+沒勾就沒有音訊軌，這時會直接報錯而不是安靜地錄一片空白。
+
+### 分析層
+
+一邊聽一邊補資料，場合決定它看什麼：`interview` 挑答案的錯與該追問的問題，
+`discussion` 補專有名詞與背景。LLM 走 `claude` CLI 的 print 模式（借 Claude Code 的
+登入，這台沒有 `ANTHROPIC_API_KEY`），所以每輪要花錢，觸發有節流：累積 400 字
+且距上輪 25 秒才跑，上一輪沒回來就跳過。
+
+```bash
+python -m huddle.server --scenario interview --llm-model claude-sonnet-5
+python -m huddle.server --no-web-search   # 不讓它上網查證
+```
+
+分析永遠排在收音後面（`nice -n 15`，背景 task，ASR 落後超過 6 秒就整輪讓路）。
+每一次跳過都送 `insight_error`，UI 看得到原因。
 
 ## eval harness
 

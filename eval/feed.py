@@ -46,6 +46,11 @@ class Report:
     wall_ms: float = 0.0
 
     def finals_text(self) -> str:
+        """逐字稿。``done`` 帶的是權威全文（final 是增量、revise 會回頭改寫，
+        自己重建容易出錯），沒有才退回串接 final。"""
+        for e in reversed(self.events):
+            if e.get("type") == "done" and e.get("text"):
+                return e["text"]
         return "\n".join(
             e["text"] for e in self.events if e.get("type") == "final" and e.get("text")
         )
@@ -74,7 +79,7 @@ class Report:
                 f"   (gate < {gate:.0f} ms) {mark}   n={len(vals)}"
             )
         # 靜默失敗是舊版的死因，所以這幾類事件單獨拉出來講
-        for kind in ("no_speech", "gap", "error"):
+        for kind in ("no_speech", "gap", "revise", "error"):
             n = counts.get(kind, 0)
             if n:
                 lines.append(f"注意：{n} 個 {kind} 事件")
@@ -106,7 +111,8 @@ async def _read_events(ws, report: Report, t0: float, send_wall: list[float]) ->
         end_ms = event.get("end_ms")
         kind = event.get("type")
         if kind in GATES and isinstance(end_ms, (int, float)):
-            idx = int(end_ms) // CHUNK_MS
+            # end_ms 是「不含」的結尾，所以涵蓋它的是前一幀：end_ms=2000 落在第 19 幀
+            idx = (max(0, int(end_ms) - 1)) // CHUNK_MS
             if 0 <= idx < len(send_wall):
                 latency = (now - send_wall[idx]) * 1000
                 report.latencies.setdefault(kind, []).append(latency)
@@ -157,10 +163,11 @@ async def feed(
             "engine": engine,
         }))
         # 協定規定要等 ready。不等就送 = 舊版靜默丟音訊的重演。
+        # 冷啟動要編譯 Metal kernel，實測第一次 ~46 秒，所以這裡等得比較久。
         try:
-            first = json.loads(await asyncio.wait_for(ws.recv(), timeout=30))
+            first = json.loads(await asyncio.wait_for(ws.recv(), timeout=180))
         except asyncio.TimeoutError:
-            raise RuntimeError("等 ready 等了 30 秒沒回應，server 沒照 docs/protocol.md 實作")
+            raise RuntimeError("等 ready 等了 180 秒沒回應，server 沒照 docs/protocol.md 實作")
         if first.get("type") != "ready":
             raise RuntimeError(f"預期 ready，收到 {first}")
 

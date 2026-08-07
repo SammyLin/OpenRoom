@@ -69,6 +69,20 @@ def error_rate(reference: str, hypothesis: str) -> dict:
     }
 
 
+def load_reference(path: Path, until_sec: float | None = None) -> str:
+    """讀 reference。給 .jsonl 才能按時間切片——只餵前 N 秒音訊時，也只能比前 N 秒。"""
+    if path.suffix == ".jsonl":
+        import json
+
+        cues = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+        if until_sec is not None:
+            cues = [c for c in cues if c["start_ms"] < until_sec * 1000]
+        return " ".join(c["text"] for c in cues)
+    if until_sec is not None:
+        raise ValueError("--until-sec 需要 reference.jsonl（純文字沒有時間軸）")
+    return path.read_text(encoding="utf-8")
+
+
 def percentile(values: list[float], pct: float) -> float:
     """線性內插百分位。樣本數少時 numpy 的 nearest-rank 會偏樂觀，這裡用內插。"""
     if not values:
@@ -105,8 +119,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("wer", help="比對兩個文字檔")
-    p.add_argument("reference", type=Path)
+    p.add_argument("reference", type=Path, help="reference.txt 或 reference.jsonl")
     p.add_argument("hypothesis", type=Path)
+    p.add_argument("--until-sec", type=float,
+                   help="只比對前 N 秒（reference 要給 .jsonl 才有時間軸）")
 
     sub.add_parser("selfcheck")
 
@@ -116,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     result = error_rate(
-        args.reference.read_text(encoding="utf-8"),
+        load_reference(args.reference, args.until_sec),
         args.hypothesis.read_text(encoding="utf-8"),
     )
     print(f"WER          {result['wer'] * 100:6.2f}%   (gate: < 12%)")

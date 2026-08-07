@@ -23,10 +23,13 @@ from pathlib import Path
 
 import websockets
 
+from .analyst import SCENARIOS, Analyst
 from .asr_worker import CHUNK_SEC, WorkerConfig, pcm_to_float, start
 
 HEADER = struct.Struct(">II")  # seq, audio_ts_ms
 RUNS = Path(__file__).resolve().parent.parent / "runs"
+# ASR 落後超過這麼多毫秒就別再跑分析——先把逐字稿追上，補充資料可以等
+BACKLOG_SKIP_MS = 6_000
 
 
 class Session:
@@ -76,26 +79,54 @@ class Session:
         return gap
 
 
-async def handle(ws, cfg: WorkerConfig, runs_dir: Path):
+async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
+                 llm_model: str, web_search: bool):
     meeting_id = ws.request.path.rsplit("/", 1)[-1] or "default"
     stamp = time.strftime("%Y%m%d-%H%M%S")
     session: Session | None = None
     pump: asyncio.Task | None = None
+    insight: asyncio.Task | None = None
+    analyst = Analyst(scenario=default_scenario, model=llm_model, web_search=web_search)
     print(f"[{meeting_id}] 連線")
+
+    async def send(event: dict) -> None:
+        await ws.send(json.dumps(event, ensure_ascii=False))
 
     async def pump_events():
         """worker 的 mp.Queue 是阻塞式的，用 to_thread 橋接，不要卡住 event loop。
 
         舊版把 DB 寫入用 ``run_coroutine_threadsafe(...).result()`` 直接阻塞
-        event loop（``store.py:436``），這裡不重蹈。
+        event loop（``store.py:436``），這裡不重蹈。分析同理：它是背景 task，
+        永遠不擋逐字稿。
         """
+        nonlocal insight
         loop = asyncio.get_running_loop()
+        audio_ms = 0
         while True:
             event = await loop.run_in_executor(None, session.out_q.get)
-            await ws.send(json.dumps(event, ensure_ascii=False))
+            await send(event)
+
+            if event.get("type") == "final":
+                audio_ms = event.get("end_ms", audio_ms)
+                analyst.add_final(event.get("text", ""))
+                if analyst.should_run(time.monotonic()):
+                    # 第二層保險：ASR 已經在落後就不要再加負擔。跳過要講出來，
+                    # 不能靜靜地不分析——那又變成舊版那種查不出原因的沉默。
+                    # mp.Queue.qsize() 在 macOS 會丟 NotImplementedError，所以直接用
+                    # 「收到的音訊」減「ASR 已處理的音訊」算積壓，一樣準而且不用問佇列。
+                    backlog_ms = session.bytes_in / 32 - audio_ms
+                    if backlog_ms > BACKLOG_SKIP_MS:
+                        await send({"type": "insight_error", "code": "asr_behind",
+                                    "message": f"ASR 落後 {backlog_ms / 1000:.0f} 秒，這輪分析跳過"})
+                    else:
+                        insight = asyncio.create_task(analyst.run(audio_ms, send))
+
             if event.get("type") == "error" and event.get("fatal"):
                 return
             if event.get("type") == "done":
+                # 收工前把剩下的內容做最後一輪分析，否則最後幾分鐘沒有補充資料
+                if analyst._chars_since > 0 and not analyst._running:
+                    await analyst.run(audio_ms, send)
                 return
 
     try:
@@ -104,6 +135,9 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path):
                 data = json.loads(message)
                 kind = data.get("type")
                 if kind == "start":
+                    # 場合決定分析怎麼做：面試看答案對錯，討論會議補背景資料
+                    if data.get("scenario") in SCENARIOS:
+                        analyst.scenario = data["scenario"]
                     if session is not None:
                         await ws.send(json.dumps({"type": "error", "code": "already_started",
                                                   "message": "重複的 start", "fatal": False}))
@@ -137,6 +171,11 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path):
     except websockets.ConnectionClosed:
         print(f"[{meeting_id}] client 斷線")
     finally:
+        # 分析比連線活得久：CLI 還在跑的時候 client 就斷了，回來 emit 會往關掉的
+        # socket 送，變成沒人接的 task exception。收工就取消，並且講出來。
+        if insight and not insight.done():
+            insight.cancel()
+            print(f"[{meeting_id}] 連線已結束，捨棄一輪還在跑的分析")
         if session:
             session.close()
             if pump:
@@ -148,11 +187,14 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path):
                   f"丟棄 {session.dropped} 幀 → {session.record_dir}")
 
 
-async def serve(host: str, port: int, cfg: WorkerConfig, runs_dir: Path):
-    async with websockets.serve(lambda ws: handle(ws, cfg, runs_dir), host, port,
-                                max_size=None):
+async def serve(host: str, port: int, cfg: WorkerConfig, runs_dir: Path,
+                scenario: str, llm_model: str, web_search: bool):
+    handler = lambda ws: handle(ws, cfg, runs_dir, scenario, llm_model, web_search)
+    async with websockets.serve(handler, host, port, max_size=None):
         print(f"huddle server → ws://{host}:{port}/ws/{{meeting_id}}")
-        print(f"模型 {cfg.model}，語言 {cfg.language or '自動'}，錄音寫到 {runs_dir}")
+        print(f"ASR {cfg.model}，語言 {cfg.language or '自動'}，錄音寫到 {runs_dir}")
+        print(f"分析 {llm_model}，場合預設 {SCENARIOS[scenario]['label']}"
+              f"，網路查證 {'開' if web_search else '關'}")
         await asyncio.Future()
 
 
@@ -165,12 +207,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--chunk-sec", type=float, default=CHUNK_SEC)
     ap.add_argument("--endpointing", default="fixed", choices=["energy", "fixed"])
     ap.add_argument("--runs-dir", type=Path, default=RUNS)
+    ap.add_argument("--scenario", default="discussion", choices=sorted(SCENARIOS))
+    ap.add_argument("--llm-model", default="claude-sonnet-5")
+    ap.add_argument("--no-web-search", action="store_true",
+                    help="關掉分析時的網路查證")
     args = ap.parse_args(argv)
 
     cfg = WorkerConfig(model=args.model, language=args.language,
                        chunk_sec=args.chunk_sec, endpointing=args.endpointing)
     try:
-        asyncio.run(serve(args.host, args.port, cfg, args.runs_dir))
+        asyncio.run(serve(args.host, args.port, cfg, args.runs_dir,
+                          args.scenario, args.llm_model, not args.no_web_search))
     except KeyboardInterrupt:
         print("\n收工")
     return 0

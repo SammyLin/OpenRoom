@@ -22,6 +22,13 @@ def test_feeder_against_stub_server():
     asyncio.run(feed._selfcheck())
 
 
+def test_analyst():
+    """JSON 解析、觸發節流，以及取消時 CLI process 有沒有跟著死。"""
+    from huddle import analyst
+
+    analyst._selfcheck()
+
+
 def test_common_prefix_delta():
     """模型改寫已穩定文字時，只能吐出差集，不能整段重發。"""
     from huddle.asr_worker import _common_prefix_len

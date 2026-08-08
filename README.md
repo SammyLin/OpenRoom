@@ -44,12 +44,18 @@ socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料�
 3. ~~Qwen3-ASR MLX（獨立 process）~~ 延遲 gate 已過，**WER 還沒**（29.4%，gate 12%）
 4. ~~前端：逐字稿 + 健康面板~~ 完成
 5. ~~即時分析層（面試／討論會議）~~ 完成，含匯出逐字稿
-6. **WER** ← 現在在這裡。換大模型、調 `unfixed_token_num`、餵 `context`
-7. pyannote（獨立 process）→ 過 DER gate，前端補講者
-8. macOS 系統音訊擷取（現在只能靠瀏覽器分享分頁音訊，錄不到 Teams 桌面版）
+6. **拿它開一場真的會議** ← 現在在這裡。中文 37.6% WER、延遲過 gate，能讀
+7. WER：`context` 餵專有名詞、`finalization_mode`、合併層的邊界重複
+8. pyannote（獨立 process）→ 過 DER gate，前端補講者
+9. macOS 系統音訊擷取（現在只能靠瀏覽器分享分頁音訊，錄不到 Teams 桌面版）
 
 原本排在最後的 LLM 層提前做了：逐字稿只是原料，**「一邊開會一邊給補充資料與追問建議」
 才是這個工具存在的理由**，先把它跑起來才知道逐字稿要多準。
+
+而磨 WER 排在真實使用**後面**，是因為 gate 是抄舊版 PRD 的，不是量出來需要的。
+32% WER 的破碎英文逐字稿，分析層照樣吐得出可用的補充資料——所以主要指標是
+insight 品質，WER 只當診斷。要標註 insight 品質就得先有東西可標，事件因此落地
+（`runs/<時間>-<meeting_id>/events.jsonl`）。
 
 ## 跑起來
 
@@ -65,7 +71,9 @@ cd app && npm install && npm run dev      # 前端 → http://localhost:5173
 Server 會先預熱模型（第一次要編譯 Metal kernel，約 46 秒），**預熱完才送 `ready`**。
 在那之前送音訊會收到 `error`，不會被靜靜吞掉。
 
-錄音寫進 `runs/<時間>-<meeting_id>/`。
+每一場寫進 `runs/<時間>-<meeting_id>/`：`audio.raw`（原始 PCM）、`events.jsonl`
+（**所有**送給前端的事件，含 `_wall_ms` 與 `infer_ms`）、`transcript.txt`。
+不用 SQLite——單機、一次一場、寫完只讀一次。
 
 前端選「系統音訊」會走瀏覽器的分享畫面對話框，**要勾「同時分享分頁音訊」**，
 沒勾就沒有音訊軌，這時會直接報錯而不是安靜地錄一片空白。
@@ -102,9 +110,14 @@ python -m eval.corpus list
 # 依真實時間節奏把音訊灌進 WS（跟麥克風走同一條路），量 P95 延遲
 python -m eval.feed corpus/<slug>/audio.wav --ws ws://127.0.0.1:8000/ws/test
 
-# 算 WER
-python -m eval.metrics wer corpus/<slug>/reference.txt hypothesis.txt --lang en
+# 算 WER（CJK 逐字、拉丁逐詞，不用指定語言；只比前 N 秒要用 reference.jsonl）
+python -m eval.metrics wer corpus/<slug>/reference.jsonl hypothesis.txt --until-sec 120
 ```
+
+量 ASR 時用 `--no-analyst` 開 server，免得每跑一次就付一次 LLM 的錢。
+
+**手動字幕不一定是逐字稿，也可能是翻譯**（踩過：英文訪談配中文字幕，WER 算出 80%
+全是假的）。`fetch` 會比對影片語言並警告，`--langs` 可以指定字幕語言的偏好順序。
 
 語料放 `corpus/`，不進版控。
 
@@ -112,8 +125,10 @@ python -m eval.metrics wer corpus/<slug>/reference.txt hypothesis.txt --lang en
 
 - **GitLab Unfiltered**（<https://www.youtube.com/@GitLabUnfiltered/videos>）——真實多人會議、
   單一混音音軌，正好打 diarization。有官方字幕可當 WER 的 ground truth，但**英文 WER
-  不是產品指標**，繁中另外找語料。
-- **AMI Corpus**——有完整講者標註，DER 的客觀基準。等 step 4 有 diarization 才接。
+  不是產品指標**。
+- **塞掐 Side Chat E417**（`6h6VsrclFTI`）——中文訪談、中英夾雜、**手動 zh-TW 字幕**
+  （真人逐字稿，比自動字幕可信）。繁中 WER 的基準就用這支。
+- **AMI Corpus**——有完整講者標註，DER 的客觀基準。等 diarization 那步才接。
 
 `ffmpeg -re` 負責真實時間節奏；音訊走的路徑跟麥克風完全一樣，所以測得到延遲，
 不是離線批次跑模型的假數字。

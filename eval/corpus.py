@@ -128,9 +128,9 @@ def parse_vtt(text: str) -> list[Cue]:
 
 # ---------------------------------------------------------------- 抓取
 
-def _pick_subtitle(info: dict) -> tuple[str, str, bool] | None:
+def _pick_subtitle(info: dict, langs: str = SUB_LANGS) -> tuple[str, str, bool] | None:
     """從 info.json 選一條字幕軌，回傳 (lang, url, is_auto)。手動優先。"""
-    wanted = SUB_LANGS.split(",")
+    wanted = langs.split(",")
     for is_auto, key in ((False, "subtitles"), (True, "automatic_captions")):
         tracks = info.get(key) or {}
         for lang in wanted:
@@ -141,7 +141,8 @@ def _pick_subtitle(info: dict) -> tuple[str, str, bool] | None:
     return None
 
 
-def fetch(url: str, corpus_dir: Path = CORPUS_DIR, force: bool = False) -> Path:
+def fetch(url: str, corpus_dir: Path = CORPUS_DIR, force: bool = False,
+          langs: str = SUB_LANGS) -> Path:
     ytdlp = _require("yt-dlp")
     ffmpeg = _require("ffmpeg")
 
@@ -168,13 +169,19 @@ def fetch(url: str, corpus_dir: Path = CORPUS_DIR, force: bool = False) -> Path:
     raw.unlink(missing_ok=True)
 
     # 字幕
-    picked = _pick_subtitle(info)
+    picked = _pick_subtitle(info, langs)
     cues: list[Cue] = []
     lang = None
     is_auto = None
     if picked:
         lang, sub_url, is_auto = picked
         print(f"字幕：{lang}（{'自動' if is_auto else '手動'}）")
+        # 手動字幕不一定是逐字稿，也可能是**翻譯**。踩過一次：一支英文訪談配
+        # 手動 zh-TW 字幕，ASR 正確吐英文、reference 是中文，WER 算出 80% 全是假的。
+        spoken = (info.get("language") or "")[:2]
+        if spoken and not lang.startswith(spoken):
+            print(f"⚠️  影片口說語言是 {spoken}，字幕卻是 {lang}——這條字幕很可能是翻譯，"
+                  f"不能當 WER 的 ground truth")
         vtt = _run([_require("curl"), "-fsSL", sub_url])
         (out / "subs.vtt").write_text(vtt, encoding="utf-8")  # 留原始檔，改解析器不用重抓
         cues = parse_vtt(vtt)
@@ -253,6 +260,9 @@ def main(argv: list[str] | None = None) -> int:
     p_fetch = sub.add_parser("fetch", help="抓一支影片")
     p_fetch.add_argument("url")
     p_fetch.add_argument("--force", action="store_true")
+    # 中文影片常常同時有英文翻譯字幕，不指定就會挑到翻譯的，WER 就白算了
+    p_fetch.add_argument("--langs", default=SUB_LANGS,
+                         help=f"字幕語言偏好順序，預設 {SUB_LANGS}")
 
     p_ch = sub.add_parser("channel", help="列出頻道影片")
     p_ch.add_argument("url")
@@ -264,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     try:
         if args.cmd == "fetch":
-            fetch(args.url, force=args.force)
+            fetch(args.url, force=args.force, langs=args.langs)
         elif args.cmd == "channel":
             for i, v in enumerate(list_channel(args.url, args.limit), 1):
                 dur = v.get("duration")

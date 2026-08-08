@@ -19,6 +19,7 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
+import zhconv
 
 SAMPLE_RATE = 16_000
 # 每次餵給模型的音訊長度。實測見 docs/measurements.md：1.0 秒兩個延遲 gate 都過，
@@ -47,6 +48,11 @@ def _common_prefix_len(a: str, b: str) -> int:
 
 
 def _emit(out: mp.Queue, event: dict) -> None:
+    # Qwen3-ASR 中文一律吐簡體，使用者是台灣人，讀起來就是不對，而且拿繁體逐字稿
+    # 當 reference 時每個簡體字都算一次取代，WER 被灌水。轉換放在唯一的出口，
+    # 不是每個 _emit 呼叫點各轉一次。英文是 no-op。
+    if event.get("text"):
+        event = {**event, "text": zhconv.convert(event["text"], "zh-tw")}
     try:
         out.put_nowait(event)
     except queue.Full:  # pragma: no cover - out queue 是無上限的

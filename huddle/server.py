@@ -44,11 +44,30 @@ class Session:
         self.dropped = 0
         self.proc = self.audio_q = self.out_q = None
         self._raw = None
+        self._events = None
+        self._t0 = time.monotonic()
 
     def open(self):
         self.record_dir.mkdir(parents=True, exist_ok=True)
         self._raw = (self.record_dir / "audio.raw").open("wb")
+        self._events = (self.record_dir / "events.jsonl").open("w", encoding="utf-8")
         self.proc, self.audio_q, self.out_q = start(self.cfg)
+
+    def log(self, event: dict) -> None:
+        """每一個送給 client 的事件都留一份。
+
+        不落地就沒得標註 insight 品質，也沒得回頭看「那句話當時是怎麼斷的」。
+        用 jsonl 不用 SQLite：單機、一次一場、寫完只讀一次，schema 跟 migration
+        都是為不存在的問題付錢。
+        """
+        if self._events is None:
+            return
+        line = {"_wall_ms": round((time.monotonic() - self._t0) * 1000), **event}
+        self._events.write(json.dumps(line, ensure_ascii=False) + "\n")
+        self._events.flush()  # 會議中途看得到，而且當掉不會整份不見
+        if event.get("type") == "done" and event.get("text"):
+            (self.record_dir / "transcript.txt").write_text(
+                event["text"] + "\n", encoding="utf-8")
 
     def close(self):
         if self.audio_q is not None:
@@ -58,6 +77,12 @@ class Session:
                 pass
         if self._raw:
             self._raw.close()
+
+    def close_log(self):
+        """事件檔要等 pump 排空才能關——``done`` 是最後一個事件，它比 ``close()`` 晚到。"""
+        if self._events:
+            self._events.close()
+            self._events = None
 
     def feed(self, seq: int, pcm: bytes) -> dict | None:
         """回傳需要送給 client 的 gap 事件，沒有就 None。"""
@@ -86,10 +111,15 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
     session: Session | None = None
     pump: asyncio.Task | None = None
     insight: asyncio.Task | None = None
-    analyst = Analyst(scenario=default_scenario, model=llm_model, web_search=web_search)
+    # 量 ASR 的時候不該每跑一次就付一次 LLM 的錢，所以分析可以整個關掉
+    analyst = (Analyst(scenario=default_scenario, model=llm_model, web_search=web_search)
+               if llm_model else None)
     print(f"[{meeting_id}] 連線")
 
     async def send(event: dict) -> None:
+        """唯一的出口。所有事件都走這裡，才不會有哪條路徑漏記。"""
+        if session is not None:
+            session.log(event)
         await ws.send(json.dumps(event, ensure_ascii=False))
 
     async def pump_events():
@@ -106,7 +136,7 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
             event = await loop.run_in_executor(None, session.out_q.get)
             await send(event)
 
-            if event.get("type") == "final":
+            if event.get("type") == "final" and analyst:
                 audio_ms = event.get("end_ms", audio_ms)
                 analyst.add_final(event.get("text", ""))
                 if analyst.should_run(time.monotonic()):
@@ -125,7 +155,7 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
                 return
             if event.get("type") == "done":
                 # 收工前把剩下的內容做最後一輪分析，否則最後幾分鐘沒有補充資料
-                if analyst._chars_since > 0 and not analyst._running:
+                if analyst and analyst._chars_since > 0 and not analyst._running:
                     await analyst.run(audio_ms, send)
                 return
 
@@ -136,11 +166,11 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
                 kind = data.get("type")
                 if kind == "start":
                     # 場合決定分析怎麼做：面試看答案對錯，討論會議補背景資料
-                    if data.get("scenario") in SCENARIOS:
+                    if analyst and data.get("scenario") in SCENARIOS:
                         analyst.scenario = data["scenario"]
                     if session is not None:
-                        await ws.send(json.dumps({"type": "error", "code": "already_started",
-                                                  "message": "重複的 start", "fatal": False}))
+                        await send({"type": "error", "code": "already_started",
+                                    "message": "重複的 start", "fatal": False})
                         continue
                     session = Session(meeting_id, cfg, runs_dir / f"{stamp}-{meeting_id}")
                     session.open()
@@ -148,7 +178,7 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
                     # 等於叫 client 把開場白送進黑洞。
                     first = await asyncio.get_running_loop().run_in_executor(
                         None, session.out_q.get)
-                    await ws.send(json.dumps(first, ensure_ascii=False))
+                    await send(first)
                     if first.get("type") != "ready":
                         break
                     print(f"[{meeting_id}] ready（預熱 {first.get('warmup_sec')} 秒）")
@@ -159,15 +189,14 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
 
             if session is None:
                 # 舊版在這裡靜默丟棄，是「不會收音」的成因之一
-                await ws.send(json.dumps({
-                    "type": "error", "code": "no_start",
-                    "message": "音訊在 start 之前送達，已丟棄", "fatal": False}))
+                await send({"type": "error", "code": "no_start",
+                            "message": "音訊在 start 之前送達，已丟棄", "fatal": False})
                 continue
 
             seq, _ts = HEADER.unpack(message[: HEADER.size])
             gap = session.feed(seq, message[HEADER.size :])
             if gap:
-                await ws.send(json.dumps(gap))
+                await send(gap)
     except websockets.ConnectionClosed:
         print(f"[{meeting_id}] client 斷線")
     finally:
@@ -183,6 +212,7 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
                     await asyncio.wait_for(pump, timeout=30)
                 except (asyncio.TimeoutError, websockets.ConnectionClosed):
                     pump.cancel()
+            session.close_log()
             print(f"[{meeting_id}] 結束：收到 {session.bytes_in / 32000:.1f} 秒音訊，"
                   f"丟棄 {session.dropped} 幀 → {session.record_dir}")
 
@@ -194,7 +224,7 @@ async def serve(host: str, port: int, cfg: WorkerConfig, runs_dir: Path,
         print(f"huddle server → ws://{host}:{port}/ws/{{meeting_id}}")
         print(f"ASR {cfg.model}，語言 {cfg.language or '自動'}，錄音寫到 {runs_dir}")
         print(f"分析 {llm_model}，場合預設 {SCENARIOS[scenario]['label']}"
-              f"，網路查證 {'開' if web_search else '關'}")
+              f"，網路查證 {'開' if web_search else '關'}" if llm_model else "分析：關閉")
         await asyncio.Future()
 
 
@@ -209,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--runs-dir", type=Path, default=RUNS)
     ap.add_argument("--scenario", default="discussion", choices=sorted(SCENARIOS))
     ap.add_argument("--llm-model", default="claude-sonnet-5")
+    ap.add_argument("--no-analyst", action="store_true",
+                    help="完全關掉分析層（量 ASR 用，免得每跑一次就付一次 LLM 的錢）")
     ap.add_argument("--no-web-search", action="store_true",
                     help="關掉分析時的網路查證")
     args = ap.parse_args(argv)
@@ -216,8 +248,9 @@ def main(argv: list[str] | None = None) -> int:
     cfg = WorkerConfig(model=args.model, language=args.language,
                        chunk_sec=args.chunk_sec, endpointing=args.endpointing)
     try:
-        asyncio.run(serve(args.host, args.port, cfg, args.runs_dir,
-                          args.scenario, args.llm_model, not args.no_web_search))
+        asyncio.run(serve(args.host, args.port, cfg, args.runs_dir, args.scenario,
+                          "" if args.no_analyst else args.llm_model,
+                          not args.no_web_search))
     except KeyboardInterrupt:
         print("\n收工")
     return 0

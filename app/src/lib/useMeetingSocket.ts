@@ -203,6 +203,8 @@ export function useMeetingSocket(wsBase: string) {
         }
         ws.onclose = () => {
           setPhase((p) => (p === "failed" ? p : "stopped"))
+          // 最後一道保險：連線沒了就不可能再收到分析結果，別讓 UI 停在「分析中」
+          setAnalysing(false)
         }
       }),
     [wsBase, handleEvent],

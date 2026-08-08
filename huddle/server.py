@@ -23,7 +23,7 @@ from pathlib import Path
 
 import websockets
 
-from .analyst import SCENARIOS, Analyst
+from .analyst import CLI_TIMEOUT_S, SCENARIOS, Analyst
 from .asr_worker import CHUNK_SEC, WorkerConfig, pcm_to_float, start
 
 HEADER = struct.Struct(">II")  # seq, audio_ts_ms
@@ -209,9 +209,19 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
             session.close()
             if pump:
                 try:
-                    await asyncio.wait_for(pump, timeout=30)
+                    # 收工那輪分析是在 done 之後才開始的，等的時間必須蓋得住 CLI 的
+                    # timeout。之前寫死 30 秒，比分析的 90 秒短，最後一輪一定被砍掉
+                    # ——錢付了，結果丟掉，會議最後幾分鐘沒有補充資料。
+                    await asyncio.wait_for(pump, timeout=CLI_TIMEOUT_S + 15)
                 except (asyncio.TimeoutError, websockets.ConnectionClosed):
                     pump.cancel()
+                    # 砍掉要講出來。前端只在 insight / insight_error / done 收手，
+                    # 沒有這個事件它會一直停在「分析中」。
+                    try:
+                        await send({"type": "insight_error", "code": "cut_short",
+                                    "message": "會議結束時最後一輪分析還沒回來，已取消"})
+                    except websockets.ConnectionClosed:
+                        pass
             session.close_log()
             print(f"[{meeting_id}] 結束：收到 {session.bytes_in / 32000:.1f} 秒音訊，"
                   f"丟棄 {session.dropped} 幀 → {session.record_dir}")

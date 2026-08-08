@@ -66,14 +66,25 @@ export function useMeetingSocket(wsBase: string) {
 
   const wsRef = useRef<WebSocket | null>(null)
   const seqRef = useRef(0)
-  // ready 之前不准送音訊。舊版在這裡靜默丟棄，是「不會收音」的成因之一，
-  // 所以這裡用 ref 硬擋，並且把擋掉的次數顯示在 UI 上。
+  // ready 之前不准送音訊。舊版在這裡靜默丟棄，是「不會收音」的成因之一。
   const readyRef = useRef(false)
+  // 但「擋下來」不等於「丟掉」——擋掉的是開場白。協定寫的是「要嘛緩衝，要嘛回
+  // error」，所以這裡緩衝，ready 之後照 seq 順序補送。
+  const pendingRef = useRef<ArrayBuffer[]>([])
+
+  const flushPending = useCallback((ws: WebSocket) => {
+    for (const pcm of pendingRef.current) {
+      const seq = seqRef.current++
+      ws.send(frameWithHeader(seq, seq * CHUNK_MS, pcm))
+    }
+    pendingRef.current = []
+  }, [])
 
   const handleEvent = useCallback((ev: ServerEvent) => {
     switch (ev.type) {
       case "ready":
         readyRef.current = true
+        if (wsRef.current) flushPending(wsRef.current)  // 預熱期間收到的開場白補送
         setEngine(ev.engine)
         setWarmupSec(ev.warmup_sec ?? null)
         setPhase("live")
@@ -150,7 +161,7 @@ export function useMeetingSocket(wsBase: string) {
         setAnalysing(false)
         break
     }
-  }, [])
+  }, [flushPending])
 
   const connect = useCallback(
     (meetingId: string, source: AudioSource, scenario: Scenario) =>
@@ -162,6 +173,7 @@ export function useMeetingSocket(wsBase: string) {
         setInsights([])
         seqRef.current = 0
         readyRef.current = false
+        pendingRef.current = []
 
         const ws = new WebSocket(`${wsBase}/ws/${meetingId}`)
         ws.binaryType = "arraybuffer"
@@ -212,9 +224,19 @@ export function useMeetingSocket(wsBase: string) {
 
   const sendAudio = useCallback((pcm: ArrayBuffer) => {
     const ws = wsRef.current
-    if (!ws || ws.readyState !== WebSocket.OPEN || !readyRef.current) {
-      // 沒送出去就是丟了。舊版在這裡回 false 就結束，沒人知道。
+    if (!ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+      // 連線沒了才是真的丟。舊版在這裡回 false 就結束，沒人知道。
       setHealth((h) => ({ ...h, droppedBeforeReady: h.droppedBeforeReady + 1 }))
+      return
+    }
+    if (!readyRef.current) {
+      // ponytail: 上限 600 幀（60 秒），冷啟動預熱實測 46 秒。真的滿了就丟，
+      // 而且要看得見——但那代表預熱異常，不是正常路徑。
+      if (pendingRef.current.length >= 600) {
+        setHealth((h) => ({ ...h, droppedBeforeReady: h.droppedBeforeReady + 1 }))
+        return
+      }
+      pendingRef.current.push(pcm)
       return
     }
     const seq = seqRef.current++

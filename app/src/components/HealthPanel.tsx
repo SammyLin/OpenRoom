@@ -79,7 +79,7 @@ export function HealthPanel({ health, engine }: { health: Health; engine: string
           hint="丟包"
         />
         <Row
-          label="ready 前丟棄"
+          label="送不出去丟棄"
           value={`${health.droppedBeforeReady}`}
           tone={health.droppedBeforeReady > 0 ? "warn" : "normal"}
         />

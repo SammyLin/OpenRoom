@@ -69,7 +69,8 @@ cd app && npm install && npm run dev      # 前端 → http://localhost:5173
 ```
 
 Server 會先預熱模型（第一次要編譯 Metal kernel，約 46 秒），**預熱完才送 `ready`**。
-在那之前送音訊會收到 `error`，不會被靜靜吞掉。
+在那之前送音訊會收到 `error`，不會被靜靜吞掉。前端在 `ready` 之前**緩衝**而不是丟棄，
+`ready` 之後照 seq 補送——擋下來的是開場白，丟掉就沒了。
 
 每一場寫進 `runs/<時間>-<meeting_id>/`：`audio.raw`（原始 PCM）、`events.jsonl`
 （**所有**送給前端的事件，含 `_wall_ms` 與 `infer_ms`）、`transcript.txt`。

@@ -1,21 +1,24 @@
 import { useEffect, useMemo, useRef } from "react"
-import { formatClock, groupSegments } from "@/lib/protocol"
+import { formatClock, groupSegments, speakerNames, type SpeakerTurn } from "@/lib/protocol"
 import type { Segment } from "@/lib/useMeetingSocket"
 
 export function TranscriptStream({
   segments,
   partial,
   warming,
+  turns,
 }: {
   segments: Segment[]
   partial: string
   warming: boolean
+  turns: SpeakerTurn[]
 }) {
   const endRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const pinnedRef = useRef(true)
   // 一個 final 是一秒 chunk 的增量，直接畫就是一行一秒。合併成段落再畫。
-  const paragraphs = useMemo(() => groupSegments(segments), [segments])
+  const paragraphs = useMemo(() => groupSegments(segments, turns), [segments, turns])
+  const names = useMemo(() => speakerNames(turns), [turns])
 
   // 使用者往上捲去看前面時，不要把他拉回底部
   useEffect(() => {
@@ -67,7 +70,14 @@ export function TranscriptStream({
             <time className="pt-0.5 font-mono text-xs tabular-nums text-muted-foreground">
               {formatClock(s.startMs)}
             </time>
-            <p className="text-[0.975rem] leading-relaxed">{s.text}</p>
+            <div>
+              {names.has(s.speaker) && (
+                <p className="mb-0.5 text-xs font-medium text-muted-foreground">
+                  {names.get(s.speaker)}
+                </p>
+              )}
+              <p className="text-[0.975rem] leading-relaxed">{s.text}</p>
+            </div>
           </article>
         ))}
 

@@ -102,6 +102,20 @@ export function HealthPanel({ health, engine }: { health: Health; engine: string
         <Row label="引擎" value={engine ?? "—"} />
       </div>
 
+      {health.speakerErrors.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
+            講者分離
+          </h3>
+          {health.speakerErrors.map((e, i) => (
+            <div key={`${e.code}-${i}`} className="rounded-md border bg-muted/40 p-3">
+              <p className="font-mono text-xs text-muted-foreground">{e.code}</p>
+              <p className="mt-1 text-sm">{e.message}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {health.errors.length > 0 && (
         <div className="space-y-2">
           <h3 className="font-mono text-xs uppercase tracking-[0.14em] text-destructive">
@@ -126,7 +140,7 @@ export function HealthPanel({ health, engine }: { health: Health; engine: string
         </p>
         <p className="flex items-center gap-1.5">
           <VolumeX className="size-3.5" aria-hidden />
-          講者分離尚未接上，所有段落都標為同一人
+          講者標籤是回填的，比逐字稿晚數十秒才會標上
         </p>
       </div>
     </div>

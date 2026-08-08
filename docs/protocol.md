@@ -67,12 +67,21 @@ ring buffer**——單機 localhost 斷線機率趨近零，為不存在的問�
 | `no_speech` | 這段音訊被能量閘門判為靜音而跳過 | `start_ms`, `end_ms`, `rms` |
 | `gap` | server 偵測到 seq 跳號 | `expected_seq`, `got_seq`, `lost_ms` |
 | `revise` | 模型回頭改寫已定稿的文字 | `from_char`, `text` |
-| `speaker` | 講者標籤更新／合併 | `speaker`, `start_ms`, `end_ms` |
+| `speaker_ready` | 講者分離模型載好了 | `model` |
+| `speaker_turns` | **整份**講者時間軸，取代前一份 | `turns[]`, `speakers`, `covers_ms`, `infer_ms` |
+| `speaker_error` | 講者分離失敗或跳過 | `code`, `message` |
 | `done` | 這場結束，帶權威全文 | `text`, `audio_ms` |
 | `insight_pending` | 開始跑一輪分析（要幾秒，UI 得知道在跑） | `scenario`, `at_ms` |
 | `insight` | 分析結果 | `headline`, `items[]`, `questions[]`, `at_ms`, `latency_ms` |
 | `insight_error` | 分析失敗或**被跳過** | `code`, `message` |
 | `error` | 任何失敗。**不得降級成假資料** | `code`, `message`, `fatal` |
+
+`speaker_turns` 是**回填**的，而且每次送的是整份時間軸，不是增量——pyannote 對整段
+音訊重跑，前一份的切點會被修正。client 直接整份換掉。
+
+⚠️ **pyannote 每次重跑會把 cluster 重新編號**（同一個人這輪 `SPEAKER_02`、下輪
+`SPEAKER_01`）。所以顯示名稱不能直接用這個 id，要照「第一次出現的時間順序」重新命名，
+那個順序才不會因為重新編號而跳動。
 
 分析層跳過一輪也算降級，所以照樣發事件：`llm_timeout`（CLI 沒回應）、`llm_failed`、
 `llm_bad_output`（模型沒給可解析 JSON）、`asr_behind`（ASR 積壓太多，這輪讓路給逐字稿）。

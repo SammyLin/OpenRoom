@@ -1,6 +1,6 @@
 // node src/lib/protocol.check.ts —— Node 直接跑 TS，不為了四個斷言裝測試框架。
 import assert from "node:assert/strict"
-import { groupSegments } from "./protocol.ts"
+import { groupSegments, speakerAt, speakerNames } from "./protocol.ts"
 
 const seg = (text: string, startMs: number, endMs: number) => ({ text, startMs, endMs })
 
@@ -39,3 +39,21 @@ const long = Array.from({ length: 30 }, (_, i) => seg(`w${i}`, i * 1000, (i + 1)
 assert.ok(groupSegments(long).length >= 2)
 
 console.log("protocol check ok")
+
+// 講者：重疊最多的那個 turn 說了算，換人就換段
+const turns = [
+  { speaker: "SPEAKER_01", start_ms: 0, end_ms: 5000 },
+  { speaker: "SPEAKER_00", start_ms: 5000, end_ms: 9000 },
+]
+const withSpk = groupSegments(
+  [seg("hello there", 0, 2000), seg("still me", 2000, 4000), seg("now me", 5000, 8000)],
+  turns,
+)
+assert.equal(withSpk.length, 2)                       // 換人就換段，不看句號
+assert.equal(withSpk[0].text, "hello there still me")
+assert.equal(withSpk[1].speaker, "SPEAKER_00")
+assert.equal(speakerNames(turns).get("SPEAKER_01"), "講者 1")  // 依第一次出現排序
+assert.equal(speakerNames(turns).get("SPEAKER_00"), "講者 2")
+assert.equal(speakerAt(turns, 9000, 9500), null)      // 沒涵蓋到就不亂猜
+
+console.log("speaker check ok")

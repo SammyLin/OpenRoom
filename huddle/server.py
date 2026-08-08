@@ -25,6 +25,8 @@ import websockets
 
 from .analyst import CLI_TIMEOUT_S, SCENARIOS, Analyst
 from .asr_worker import CHUNK_SEC, WorkerConfig, pcm_to_float, start
+from .diarize_worker import IDLE_RATIO, DiarizeConfig
+from .diarize_worker import start as start_diarize
 
 HEADER = struct.Struct(">II")  # seq, audio_ts_ms
 RUNS = Path(__file__).resolve().parent.parent / "runs"
@@ -35,14 +37,18 @@ BACKLOG_SKIP_MS = 6_000
 class Session:
     """一場會議。單機工具，一次只有一場。"""
 
-    def __init__(self, meeting_id: str, cfg: WorkerConfig, record_dir: Path):
+    def __init__(self, meeting_id: str, cfg: WorkerConfig, record_dir: Path,
+                 diarize: DiarizeConfig | None = None):
         self.meeting_id = meeting_id
         self.cfg = cfg
         self.record_dir = record_dir
+        self.diarize_cfg = diarize
         self.expected_seq = 0
         self.bytes_in = 0
         self.dropped = 0
+        self.dropped_diarize = 0
         self.proc = self.audio_q = self.out_q = None
+        self.dia_proc = self.dia_audio_q = self.dia_out_q = None
         self._raw = None
         self._events = None
         self._t0 = time.monotonic()
@@ -52,6 +58,8 @@ class Session:
         self._raw = (self.record_dir / "audio.raw").open("wb")
         self._events = (self.record_dir / "events.jsonl").open("w", encoding="utf-8")
         self.proc, self.audio_q, self.out_q = start(self.cfg)
+        if self.diarize_cfg is not None:
+            self.dia_proc, self.dia_audio_q, self.dia_out_q = start_diarize(self.diarize_cfg)
 
     def log(self, event: dict) -> None:
         """每一個送給 client 的事件都留一份。
@@ -70,11 +78,12 @@ class Session:
                 event["text"] + "\n", encoding="utf-8")
 
     def close(self):
-        if self.audio_q is not None:
-            try:
-                self.audio_q.put_nowait(None)
-            except queue.Full:
-                pass
+        for q in (self.audio_q, self.dia_audio_q):
+            if q is not None:
+                try:
+                    q.put_nowait(None)
+                except queue.Full:
+                    pass
         if self._raw:
             self._raw.close()
 
@@ -94,8 +103,15 @@ class Session:
         self.expected_seq = seq + 1
         self.bytes_in += len(pcm)
         self._raw.write(pcm)
+        samples = pcm_to_float(pcm)
+        if self.dia_audio_q is not None:
+            try:
+                self.dia_audio_q.put_nowait(samples)
+            except queue.Full:
+                # diarization 追不上就少標講者，但**絕不能因此丟掉逐字稿的音訊**
+                self.dropped_diarize += 1
         try:
-            self.audio_q.put_nowait(pcm_to_float(pcm))
+            self.audio_q.put_nowait(samples)
         except queue.Full:
             # 推論追不上。丟最新的一包並且明講——舊版是靜默丟棄。
             self.dropped += 1
@@ -105,11 +121,12 @@ class Session:
 
 
 async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
-                 llm_model: str, web_search: bool):
+                 llm_model: str, web_search: bool, diarize_cfg: DiarizeConfig | None):
     meeting_id = ws.request.path.rsplit("/", 1)[-1] or "default"
     stamp = time.strftime("%Y%m%d-%H%M%S")
     session: Session | None = None
     pump: asyncio.Task | None = None
+    dia_pump: asyncio.Task | None = None
     insight: asyncio.Task | None = None
     # 量 ASR 的時候不該每跑一次就付一次 LLM 的錢，所以分析可以整個關掉
     analyst = (Analyst(scenario=default_scenario, model=llm_model, web_search=web_search)
@@ -159,6 +176,15 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
                     await analyst.run(audio_ms, send)
                 return
 
+    async def pump_diarize():
+        """講者事件走同一個出口，但節奏跟逐字稿無關：它是**回填**的，會晚很多。"""
+        loop = asyncio.get_running_loop()
+        while True:
+            event = await loop.run_in_executor(None, session.dia_out_q.get)
+            if event.get("type") == "speaker_done":
+                return
+            await send(event)
+
     try:
         async for message in ws:
             if isinstance(message, str):
@@ -172,7 +198,8 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
                         await send({"type": "error", "code": "already_started",
                                     "message": "重複的 start", "fatal": False})
                         continue
-                    session = Session(meeting_id, cfg, runs_dir / f"{stamp}-{meeting_id}")
+                    session = Session(meeting_id, cfg, runs_dir / f"{stamp}-{meeting_id}",
+                                      diarize=diarize_cfg)
                     session.open()
                     # ready 由 worker 預熱完才發出——冷啟動要 46 秒，提早說 ready
                     # 等於叫 client 把開場白送進黑洞。
@@ -183,6 +210,8 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
                         break
                     print(f"[{meeting_id}] ready（預熱 {first.get('warmup_sec')} 秒）")
                     pump = asyncio.create_task(pump_events())
+                    if session.dia_out_q is not None:
+                        dia_pump = asyncio.create_task(pump_diarize())
                 elif kind == "stop":
                     break
                 continue
@@ -222,19 +251,30 @@ async def handle(ws, cfg: WorkerConfig, runs_dir: Path, default_scenario: str,
                                     "message": "會議結束時最後一輪分析還沒回來，已取消"})
                     except websockets.ConnectionClosed:
                         pass
+            if dia_pump:
+                # 收工那次 diarization 是對整場重跑，會議越長跑越久。等，但有上限。
+                try:
+                    await asyncio.wait_for(dia_pump, timeout=180)
+                except (asyncio.TimeoutError, websockets.ConnectionClosed):
+                    dia_pump.cancel()
+                    print(f"[{meeting_id}] 最後一次講者分離超過 180 秒，放棄")
             session.close_log()
             print(f"[{meeting_id}] 結束：收到 {session.bytes_in / 32000:.1f} 秒音訊，"
-                  f"丟棄 {session.dropped} 幀 → {session.record_dir}")
+                  f"丟棄 {session.dropped} 幀"
+                  f"（講者分離另丟 {session.dropped_diarize}）→ {session.record_dir}")
 
 
 async def serve(host: str, port: int, cfg: WorkerConfig, runs_dir: Path,
-                scenario: str, llm_model: str, web_search: bool):
-    handler = lambda ws: handle(ws, cfg, runs_dir, scenario, llm_model, web_search)
+                scenario: str, llm_model: str, web_search: bool,
+                diarize_cfg: DiarizeConfig | None):
+    handler = lambda ws: handle(ws, cfg, runs_dir, scenario, llm_model, web_search,
+                                diarize_cfg)
     async with websockets.serve(handler, host, port, max_size=None):
         print(f"huddle server → ws://{host}:{port}/ws/{{meeting_id}}")
         print(f"ASR {cfg.model}，語言 {cfg.language or '自動'}，錄音寫到 {runs_dir}")
         print(f"分析 {llm_model}，場合預設 {SCENARIOS[scenario]['label']}"
               f"，網路查證 {'開' if web_search else '關'}" if llm_model else "分析：關閉")
+        print(f"講者分離 {diarize_cfg.model}" if diarize_cfg else "講者分離：關閉")
         await asyncio.Future()
 
 
@@ -253,6 +293,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="完全關掉分析層（量 ASR 用，免得每跑一次就付一次 LLM 的錢）")
     ap.add_argument("--no-web-search", action="store_true",
                     help="關掉分析時的網路查證")
+    ap.add_argument("--diarize-idle-ratio", type=float, default=IDLE_RATIO,
+                    help="講者分離跑完後休息「這次耗時 × 幾倍」。調大 = ASR 延遲更穩、"
+                         "講者標籤更晚到")
+    ap.add_argument("--no-diarize", action="store_true",
+                    help="關掉講者分離（量 ASR 延遲時要關，不然兩邊搶同一顆 GPU）")
     args = ap.parse_args(argv)
 
     cfg = WorkerConfig(model=args.model, language=args.language,
@@ -260,7 +305,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         asyncio.run(serve(args.host, args.port, cfg, args.runs_dir, args.scenario,
                           "" if args.no_analyst else args.llm_model,
-                          not args.no_web_search))
+                          not args.no_web_search,
+                          None if args.no_diarize
+                          else DiarizeConfig(idle_ratio=args.diarize_idle_ratio)))
     except KeyboardInterrupt:
         print("\n收工")
     return 0

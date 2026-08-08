@@ -46,7 +46,7 @@ socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料�
 5. ~~即時分析層（面試／討論會議）~~ 完成，含匯出逐字稿
 6. **拿它開一場真的會議** ← 現在在這裡。中文 37.6% WER、延遲過 gate，能讀
 7. WER：`context` 餵專有名詞、`finalization_mode`（合併層的邊界重複已修掉 2pp）
-8. pyannote（獨立 process）→ 過 DER gate，前端補講者
+8. ~~pyannote 講者分離（獨立 process）~~ 完成，DER 還沒量
 9. macOS 系統音訊擷取（現在只能靠瀏覽器分享分頁音訊，錄不到 Teams 桌面版）
 
 原本排在最後的 LLM 層提前做了：逐字稿只是原料，**「一邊開會一邊給補充資料與追問建議」
@@ -61,8 +61,9 @@ insight 品質，WER 只當診斷。要標註 insight 品質就得先有東西�
 
 ```bash
 uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -e '.[eval,dev]' 'mlx-qwen3-asr>=0.3.5'
+uv pip install -e '.[eval,dev,diarize]' 'mlx-qwen3-asr>=0.3.5'
 
+export HF_TOKEN=hf_...                    # 講者分離的模型是 gated repo，見下面
 python -m huddle.server --language en     # 不給 --language 就自動判斷（中英夾雜用這個）
 
 cd app && npm install && npm run dev      # 前端 → http://localhost:5173
@@ -78,6 +79,21 @@ Server 會先預熱模型（第一次要編譯 Metal kernel，約 46 秒），**
 
 前端選「系統音訊」會走瀏覽器的分享畫面對話框，**要勾「同時分享分頁音訊」**，
 沒勾就沒有音訊軌，這時會直接報錯而不是安靜地錄一片空白。
+
+### 講者分離
+
+pyannote 跑在自己的 process，對「目前為止的整段音訊」重跑，所以講者身分前後一致。
+模型是 **gated repo**：要先到
+<https://huggingface.co/pyannote/speaker-diarization-community-1> 按同意，再設
+`HF_TOKEN`。沒設會收到 `speaker_error`，不會安靜地少標講者。
+
+```bash
+python -m huddle.server --no-diarize            # 量 ASR 延遲時要關，兩邊搶同一顆 GPU
+python -m huddle.server --diarize-idle-ratio 12 # 更保守：ASR 更穩，講者標籤更晚到
+```
+
+**講者標籤是回填的**，比逐字稿晚到數十秒；這是拿即時性換身分一致性，實測見
+`docs/measurements.md`。
 
 ### 分析層
 

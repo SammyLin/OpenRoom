@@ -7,6 +7,7 @@ import {
   type InsightItem,
   type Scenario,
   type ServerEvent,
+  type SpeakerTurn,
 } from "./protocol"
 
 export type Phase = "idle" | "connecting" | "warming" | "live" | "stopped" | "failed"
@@ -39,6 +40,7 @@ export interface Health {
   lastInferMs: number | null
   droppedBeforeReady: number
   insightErrors: { code: string; message: string }[]
+  speakerErrors: { code: string; message: string }[]
 }
 
 const EMPTY_HEALTH: Health = {
@@ -51,6 +53,7 @@ const EMPTY_HEALTH: Health = {
   lastInferMs: null,
   droppedBeforeReady: 0,
   insightErrors: [],
+  speakerErrors: [],
 }
 
 export function useMeetingSocket(wsBase: string) {
@@ -62,6 +65,9 @@ export function useMeetingSocket(wsBase: string) {
   const [warmupSec, setWarmupSec] = useState<number | null>(null)
   const [audioMs, setAudioMs] = useState(0)
   const [insights, setInsights] = useState<Insight[]>([])
+  // 講者分離是回填的：整份 turns 每次被新的一份取代，不是累加
+  const [turns, setTurns] = useState<SpeakerTurn[]>([])
+  const [speakers, setSpeakers] = useState(0)
   const [analysing, setAnalysing] = useState(false)
 
   const wsRef = useRef<WebSocket | null>(null)
@@ -156,6 +162,16 @@ export function useMeetingSocket(wsBase: string) {
           insightErrors: [...h.insightErrors, { code: ev.code, message: ev.message }],
         }))
         break
+      case "speaker_turns":
+        setTurns(ev.turns)
+        setSpeakers(ev.speakers)
+        break
+      case "speaker_error":
+        setHealth((h) => ({
+          ...h,
+          speakerErrors: [...h.speakerErrors, { code: ev.code, message: ev.message }],
+        }))
+        break
       case "done":
         setPhase("stopped")
         setAnalysing(false)
@@ -171,6 +187,8 @@ export function useMeetingSocket(wsBase: string) {
         setPartial("")
         setHealth(EMPTY_HEALTH)
         setInsights([])
+        setTurns([])
+        setSpeakers(0)
         seqRef.current = 0
         readyRef.current = false
         pendingRef.current = []
@@ -250,6 +268,6 @@ export function useMeetingSocket(wsBase: string) {
 
   return {
     phase, segments, partial, health, engine, warmupSec, audioMs,
-    insights, analysing, connect, sendAudio, stop,
+    insights, analysing, turns, speakers, connect, sendAudio, stop,
   }
 }

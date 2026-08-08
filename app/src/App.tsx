@@ -5,7 +5,14 @@ import { HealthPanel } from "@/components/HealthPanel"
 import { InsightPanel } from "@/components/InsightPanel"
 import { SetupScreen } from "@/components/SetupScreen"
 import { TranscriptStream } from "@/components/TranscriptStream"
-import { SCENARIOS, formatClock, groupSegments, type AudioSource, type Scenario } from "@/lib/protocol"
+import {
+  SCENARIOS,
+  formatClock,
+  groupSegments,
+  speakerNames,
+  type AudioSource,
+  type Scenario,
+} from "@/lib/protocol"
 import { useAudioCapture } from "@/lib/useAudioCapture"
 import { useMeetingSocket } from "@/lib/useMeetingSocket"
 
@@ -28,8 +35,11 @@ export default function App() {
       setBusy(false)
       return
     }
-    // 擷取先開起來，音訊在 ready 之前會被 socket 層擋下並計數，不會靜靜消失
-    await capture.start(source, (pcm) => sendRef.current(pcm))
+    // 擷取先開起來，音訊在 ready 之前會被 socket 層緩衝，不會靜靜消失
+    const capturing = await capture.start(source, (pcm) => sendRef.current(pcm))
+    // 擷取失敗（權限被拒、沒有音訊軌）卻繼續顯示「錄製中」，就是舊版那種
+    // 「看起來在收音，其實什麼都沒有」。收掉連線，讓錯誤回到設定畫面。
+    if (!capturing) socket.stop()
     setBusy(false)
   }, [capture, socket, source, scenario])
 
@@ -44,8 +54,12 @@ export default function App() {
 
   const exportTranscript = useCallback(() => {
     // 匯出跟畫面看到的一樣是段落，不是一行一秒的碎片
-    const body = groupSegments(socket.segments)
-      .map((s) => `[${formatClock(s.startMs)}] ${s.text}`)
+    const names = speakerNames(socket.turns)
+    const body = groupSegments(socket.segments, socket.turns)
+      .map((s) => {
+        const who = names.get(s.speaker)
+        return `[${formatClock(s.startMs)}]${who ? ` ${who}：` : " "}${s.text}`
+      })
       .join("\n\n")
     const blob = new Blob([`# 會議逐字稿\n\n${body}\n`], {
       type: "text/markdown;charset=utf-8",
@@ -55,9 +69,15 @@ export default function App() {
     a.download = `huddle-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`
     a.click()
     URL.revokeObjectURL(a.href)
-  }, [socket.segments])
+  }, [socket.segments, socket.turns])
 
-  if (socket.phase === "idle" || (socket.phase === "failed" && socket.segments.length === 0)) {
+  // 一句逐字稿都沒有就結束 = 這場根本沒開始。回設定畫面並帶著錯誤，不要停在一個
+  // 空白的「已停止」畫面讓人猜發生什麼事。
+  const nothingRecorded = socket.segments.length === 0
+  if (
+    socket.phase === "idle" ||
+    ((socket.phase === "failed" || socket.phase === "stopped") && nothingRecorded)
+  ) {
     return (
       <SetupScreen
         source={source}
@@ -131,6 +151,7 @@ export default function App() {
             segments={socket.segments}
             partial={socket.partial}
             warming={warming}
+            turns={socket.turns}
           />
         </main>
         <aside className="hidden w-96 shrink-0 flex-col border-l lg:flex">

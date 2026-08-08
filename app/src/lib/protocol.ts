@@ -60,6 +60,15 @@ export type ServerEvent =
     } & Base)
   | ({ type: "insight_error"; code: string; message: string } & Base)
   | ({ type: "insight_pending"; scenario: Scenario; at_ms: number } & Base)
+  | ({ type: "speaker_ready"; model: string } & Base)
+  | ({
+      type: "speaker_turns"
+      turns: SpeakerTurn[]
+      speakers: number
+      covers_ms: number
+      infer_ms: number
+    } & Base)
+  | ({ type: "speaker_error"; code: string; message: string } & Base)
 
 /** 8 byte header：seq (uint32 BE) + audio_ts_ms (uint32 BE)，後面接 PCM。 */
 export function frameWithHeader(seq: number, audioTsMs: number, pcm: ArrayBuffer): ArrayBuffer {
@@ -85,14 +94,46 @@ function join(left: string, right: string): string {
   return `${trimmed} ${right}`
 }
 
-export function groupSegments<T extends { text: string; startMs: number; endMs: number }>(
-  segments: T[],
-): T[] {
+export interface SpeakerTurn {
+  speaker: string
+  start_ms: number
+  end_ms: number
+}
+
+/** 這段話是誰講的：跟哪個 turn 重疊最多就算誰的。沒有涵蓋到就 null。 */
+export function speakerAt(turns: SpeakerTurn[], startMs: number, endMs: number): string | null {
+  let best: string | null = null
+  let bestOverlap = 0
+  for (const t of turns) {
+    const overlap = Math.min(endMs, t.end_ms) - Math.max(startMs, t.start_ms)
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap
+      best = t.speaker
+    }
+  }
+  return best
+}
+
+/** SPEAKER_00 對人沒意義：照第一次出現的順序改叫「講者 1」。 */
+export function speakerNames(turns: SpeakerTurn[]): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const t of turns) if (!m.has(t.speaker)) m.set(t.speaker, `講者 ${m.size + 1}`)
+  return m
+}
+
+export function groupSegments<
+  T extends { text: string; startMs: number; endMs: number; speaker?: string },
+>(segments: T[], turns: SpeakerTurn[] = []): T[] {
   const out: T[] = []
-  for (const s of segments) {
+  for (const raw of segments) {
+    // 講者標籤是 diarization 回填的，比逐字稿晚到，所以每次重算而不是存進 segment
+    const speaker = turns.length ? speakerAt(turns, raw.startMs, raw.endMs) : null
+    const s = speaker ? { ...raw, speaker } : raw
     const last = out[out.length - 1]
     const openable =
       last &&
+      // 換人就換段，這比句尾標點更該切
+      (last.speaker ?? null) === (s.speaker ?? null) &&
       !(
         last.endMs - last.startMs >= PARA_MAX_MS ||
         (last.endMs - last.startMs >= PARA_MIN_MS && SENTENCE_END.test(last.text.trim()))

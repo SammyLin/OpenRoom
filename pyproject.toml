@@ -13,6 +13,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# 講者分離。torch 一整套很肥，而且模型是 gated repo（要 HF_TOKEN），
+# 所以獨立成一個 extra——沒裝也能跑，用 --no-diarize。
+diarize = [
+  "pyannote.audio>=4.0",
+]
 # 評測工具鏈。yt-dlp 與 ffmpeg 走 CLI，不進 Python 相依。
 eval = [
   "websockets>=12.0",

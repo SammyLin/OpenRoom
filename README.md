@@ -45,7 +45,7 @@ socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料�
 4. ~~前端：逐字稿 + 健康面板~~ 完成
 5. ~~即時分析層（面試／討論會議）~~ 完成，含匯出逐字稿
 6. **拿它開一場真的會議** ← 現在在這裡。中文 37.6% WER、延遲過 gate，能讀
-7. WER：`context` 餵專有名詞、`finalization_mode`、合併層的邊界重複
+7. WER：`context` 餵專有名詞、`finalization_mode`（合併層的邊界重複已修掉 2pp）
 8. pyannote（獨立 process）→ 過 DER gate，前端補講者
 9. macOS 系統音訊擷取（現在只能靠瀏覽器分享分頁音訊，錄不到 Teams 桌面版）
 

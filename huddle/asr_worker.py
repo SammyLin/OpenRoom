@@ -39,6 +39,40 @@ class WorkerConfig:
     endpointing: str = "fixed"
 
 
+# 標點：比對重疊時要忽略的字元。模型重講同一段話時標點常常不一樣。
+_PUNCT = "。，、？！；：,.?!;:「」『』（）()… 　"
+
+
+def _tolerant_append(curr: str, add: str, language: str, _orig) -> str:
+    """套件的合併只認**完全相符**的前後綴，標點一差就找不到重疊，直接把兩塊接起來，
+    逐字稿就變成「在三月。月中的。時候就有聽。聽到謠言。」。
+
+    這裡只在原邏輯確實硬接的時候介入，用忽略標點的比對再找一次重疊。
+    """
+    merged = _orig(curr, add, language)
+    c, a = str(curr or "").strip(), str(add or "").strip()
+    if not c or not a:
+        return merged
+    joiner = "" if merged.startswith(c + a) else " "
+    if merged != f"{c}{joiner}{a}":
+        return merged  # 原邏輯有找到重疊，尊重它
+
+    cu = list(c) if joiner == "" else c.split()
+    au = list(a) if joiner == "" else a.split()
+    ci = [i for i, u in enumerate(cu) if u.strip(_PUNCT)]
+    ai = [i for i, u in enumerate(au) if u.strip(_PUNCT)]
+    cn = [cu[i].strip(_PUNCT) for i in ci]
+    an = [au[i].strip(_PUNCT) for i in ai]
+    # 上限 12：再長的「重疊」多半是真的重複講了兩次，不該吃掉
+    for k in range(min(len(cn), len(an), 12), 0, -1):
+        if cn[-k:] == an[:k]:
+            # 命中代表這是同一句被切開，curr 尾巴那個句號是模型硬斷出來的，要拿掉，
+            # 否則會變成「在三月。中的。」——標點卡在詞中間。
+            head = cu[:ci[-1]] + [cu[ci[-1]].strip(_PUNCT)]
+            return joiner.join(head + au[ai[k - 1] + 1:])
+    return merged
+
+
 def _common_prefix_len(a: str, b: str) -> int:
     n = min(len(a), len(b))
     i = 0
@@ -63,6 +97,9 @@ def run(cfg: WorkerConfig, audio_q: mp.Queue, out_q: mp.Queue) -> None:
     """Worker process 進入點。只從 audio_q 讀 PCM，只往 out_q 寫事件。"""
     try:
         from mlx_qwen3_asr import streaming as st
+
+        _orig_append = st._append_chunk_text
+        st._append_chunk_text = lambda c, a, lang: _tolerant_append(c, a, lang, _orig_append)
     except ImportError as exc:
         _emit(out_q, {"type": "error", "code": "mlx_missing",
                       "message": f"載入 mlx-qwen3-asr 失敗：{exc}", "fatal": True})

@@ -29,6 +29,19 @@ def test_analyst():
     analyst._selfcheck()
 
 
+def test_tolerant_merge():
+    """標點不同的邊界重複要合掉；沒有重疊的不准亂動。"""
+    from huddle.asr_worker import _tolerant_append
+
+    orig = lambda c, a, lang: (c + a) if lang == "zh" else f"{c} {a}"
+    m = lambda c, a, lang="zh": _tolerant_append(c, a, lang, orig)
+
+    assert m("在三月。", "月中的。時候") == "在三月中的。時候"   # 標點卡在中間也要接得起來
+    assert m("聽", "聽到謠言。") == "聽到謠言。"
+    assert m("今天天氣", "很好") == "今天天氣很好"              # 沒重疊就原樣
+    assert m("hey everyone welcome.", "welcome to this", "en") == "hey everyone welcome to this"
+
+
 def test_common_prefix_delta():
     """模型改寫已穩定文字時，只能吐出差集，不能整段重發。"""
     from huddle.asr_worker import _common_prefix_len

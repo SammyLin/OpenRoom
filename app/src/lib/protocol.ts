@@ -71,6 +71,41 @@ export function frameWithHeader(seq: number, audioTsMs: number, pcm: ArrayBuffer
   return out
 }
 
+// 一個 final 只是一秒 chunk 的增量，照著畫就是一行一秒，讀起來不成句。
+// 合併成段落：夠長而且結在句尾就換段，太長就硬換。
+const PARA_MIN_MS = 6_000
+const PARA_MAX_MS = 20_000
+const SENTENCE_END = /[.。!！?？][")'」』）]?$/
+const CJK = /[㐀-鿿豈-﫿　-〿]/
+
+/** 接起兩段文字。中文不加空白；英文的句號如果後面接小寫，是模型亂斷的，拿掉。 */
+function join(left: string, right: string): string {
+  if (CJK.test(left) || CJK.test(right)) return left + right
+  const trimmed = /[a-z]/.test(right[0] ?? "") ? left.replace(/\.$/, "") : left
+  return `${trimmed} ${right}`
+}
+
+export function groupSegments<T extends { text: string; startMs: number; endMs: number }>(
+  segments: T[],
+): T[] {
+  const out: T[] = []
+  for (const s of segments) {
+    const last = out[out.length - 1]
+    const openable =
+      last &&
+      !(
+        last.endMs - last.startMs >= PARA_MAX_MS ||
+        (last.endMs - last.startMs >= PARA_MIN_MS && SENTENCE_END.test(last.text.trim()))
+      )
+    if (openable) {
+      out[out.length - 1] = { ...last, text: join(last.text, s.text), endMs: s.endMs }
+    } else {
+      out.push({ ...s })
+    }
+  }
+  return out
+}
+
 export function formatClock(ms: number): string {
   const total = Math.floor(ms / 1000)
   const h = Math.floor(total / 3600)

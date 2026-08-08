@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react"
-import { formatClock } from "@/lib/protocol"
+import { useEffect, useMemo, useRef } from "react"
+import { formatClock, groupSegments } from "@/lib/protocol"
 import type { Segment } from "@/lib/useMeetingSocket"
 
 export function TranscriptStream({
@@ -14,6 +14,8 @@ export function TranscriptStream({
   const endRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const pinnedRef = useRef(true)
+  // 一個 final 是一秒 chunk 的增量，直接畫就是一行一秒。合併成段落再畫。
+  const paragraphs = useMemo(() => groupSegments(segments), [segments])
 
   // 使用者往上捲去看前面時，不要把他拉回底部
   useEffect(() => {
@@ -60,7 +62,7 @@ export function TranscriptStream({
           </p>
         )}
 
-        {segments.map((s) => (
+        {paragraphs.map((s) => (
           <article key={s.id} className="grid grid-cols-[3.5rem_1fr] gap-4">
             <time className="pt-0.5 font-mono text-xs tabular-nums text-muted-foreground">
               {formatClock(s.startMs)}

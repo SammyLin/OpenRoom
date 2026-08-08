@@ -5,7 +5,7 @@ import { HealthPanel } from "@/components/HealthPanel"
 import { InsightPanel } from "@/components/InsightPanel"
 import { SetupScreen } from "@/components/SetupScreen"
 import { TranscriptStream } from "@/components/TranscriptStream"
-import { SCENARIOS, formatClock, type AudioSource, type Scenario } from "@/lib/protocol"
+import { SCENARIOS, formatClock, groupSegments, type AudioSource, type Scenario } from "@/lib/protocol"
 import { useAudioCapture } from "@/lib/useAudioCapture"
 import { useMeetingSocket } from "@/lib/useMeetingSocket"
 
@@ -43,9 +43,10 @@ export default function App() {
   }, [socket.phase, capture])
 
   const exportTranscript = useCallback(() => {
-    const body = socket.segments
+    // 匯出跟畫面看到的一樣是段落，不是一行一秒的碎片
+    const body = groupSegments(socket.segments)
       .map((s) => `[${formatClock(s.startMs)}] ${s.text}`)
-      .join("\n")
+      .join("\n\n")
     const blob = new Blob([`# 會議逐字稿\n\n${body}\n`], {
       type: "text/markdown;charset=utf-8",
     })

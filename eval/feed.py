@@ -263,7 +263,11 @@ async def _stub_server(host: str, port: int, ready: asyncio.Event) -> None:
 
 
 async def _selfcheck() -> None:
+    # feed() 上面就守了同一件事，這裡漏掉的話 ffmpeg 缺席會變成
+    # `TypeError: expected str ... not NoneType`，指向 asyncio 內部而不是缺工具。
     ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("找不到 ffmpeg，請先 `brew install ffmpeg`")
     tmp = Path(__file__).resolve().parent.parent / "runs" / "_selfcheck"
     tmp.mkdir(parents=True, exist_ok=True)
     wav = tmp / "tone.wav"

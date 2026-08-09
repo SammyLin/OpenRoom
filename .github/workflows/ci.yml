@@ -45,13 +45,21 @@ jobs:
           done
 
   python:
-    # 測試全是純 Python（analyst 的 selfcheck 只 spawn `sleep`），沒碰 mlx / CoreML，
-    # 所以跑 ubuntu：快、便宜，而且會逼我們別偷偷讓測試相依 macOS。
+    # 測試沒碰 mlx / CoreML，所以跑 ubuntu：快、便宜，而且會逼我們別偷偷讓測試相依 macOS。
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+
+      # feed 的 selfcheck 真的會叫 ffmpeg 生一段 sine 再餵完整條路徑。那條路徑就是
+      # 整個延遲測量的根據，用假的 wav 繞過等於 CI 不再驗它。
+      - name: Install ffmpeg
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
 
       - uses: astral-sh/setup-uv@v6
 

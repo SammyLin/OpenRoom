@@ -159,6 +159,7 @@ export default function App() {
             <InsightPanel
               insights={socket.insights}
               analysing={socket.analysing}
+              quietRounds={socket.quietRounds}
               health={socket.health}
               scenarioLabel={SCENARIOS.find((s) => s.id === scenario)?.label ?? ""}
             />

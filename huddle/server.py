@@ -286,6 +286,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--language", default=None, help="en / zh…，不給就自動判斷")
     ap.add_argument("--chunk-sec", type=float, default=CHUNK_SEC)
     ap.add_argument("--endpointing", default="fixed", choices=["energy", "fixed"])
+    ap.add_argument("--context", default="",
+                    help="會議裡的專有名詞（人名、工具、產品），逗號分隔。"
+                         "模型會拿它當提示，少把 Claude 聽成 Chad")
     ap.add_argument("--runs-dir", type=Path, default=RUNS)
     ap.add_argument("--scenario", default="discussion", choices=sorted(SCENARIOS))
     ap.add_argument("--llm-model", default="claude-sonnet-5")

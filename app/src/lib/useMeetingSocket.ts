@@ -69,6 +69,7 @@ export function useMeetingSocket(wsBase: string) {
   const [turns, setTurns] = useState<SpeakerTurn[]>([])
   const [speakers, setSpeakers] = useState(0)
   const [analysing, setAnalysing] = useState(false)
+  const [quietRounds, setQuietRounds] = useState(0)
 
   const wsRef = useRef<WebSocket | null>(null)
   const seqRef = useRef(0)
@@ -155,6 +156,11 @@ export function useMeetingSocket(wsBase: string) {
         ])
         setAnalysing(false)
         break
+      case "insight_none":
+        // 跑完了，只是沒有新東西可講。不是錯誤，但 UI 得收手。
+        setAnalysing(false)
+        setQuietRounds((n) => n + 1)
+        break
       case "insight_error":
         setAnalysing(false)
         setHealth((h) => ({
@@ -189,6 +195,7 @@ export function useMeetingSocket(wsBase: string) {
         setInsights([])
         setTurns([])
         setSpeakers(0)
+        setQuietRounds(0)
         seqRef.current = 0
         readyRef.current = false
         pendingRef.current = []
@@ -268,6 +275,6 @@ export function useMeetingSocket(wsBase: string) {
 
   return {
     phase, segments, partial, health, engine, warmupSec, audioMs,
-    insights, analysing, turns, speakers, connect, sendAudio, stop,
+    insights, analysing, quietRounds, turns, speakers, connect, sendAudio, stop,
   }
 }

@@ -47,7 +47,9 @@ socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料�
 6. **拿它開一場真的會議** ← 現在在這裡。中文 37.6% WER、延遲過 gate，能讀
 7. WER：`context` 餵專有名詞、`finalization_mode`（合併層的邊界重複已修掉 2pp）
 8. ~~pyannote 講者分離（獨立 process）~~ 完成，DER 還沒量
-9. macOS 系統音訊擷取（現在只能靠瀏覽器分享分頁音訊，錄不到 Teams 桌面版）
+9. ~~macOS 系統音訊擷取~~ 完成：`native/huddle-capture`，ScreenCaptureKit 抓系統輸出
+   （不靠瀏覽器分頁分享，Teams 桌面版也收得到），照 `docs/protocol.md` 直接當 WS
+   client 接後端。第一次跑要在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」授權。
 
 原本排在最後的 LLM 層提前做了：逐字稿只是原料，**「一邊開會一邊給補充資料與追問建議」
 才是這個工具存在的理由**，先把它跑起來才知道逐字稿要多準。
@@ -98,7 +100,7 @@ python -m huddle.server --diarize-idle-ratio 12 # 更保守：ASR 更穩，講�
 ### 分析層
 
 一邊聽一邊補資料，場合決定它看什麼：`interview` 挑答案的錯與該追問的問題，
-`discussion` 補專有名詞與背景。LLM 走 `claude` CLI 的 print 模式（借 Claude Code 的
+`discussion` 補專有名詞與背景。LLM 預設走 `claude` CLI 的 print 模式（借 Claude Code 的
 登入，這台沒有 `ANTHROPIC_API_KEY`），所以每輪要花錢，觸發有節流：累積 400 字
 且距上輪 25 秒才跑，上一輪沒回來就跳過。
 
@@ -109,6 +111,23 @@ python -m huddle.server --no-web-search   # 不讓它上網查證
 
 分析永遠排在收音後面（`nice -n 15`，背景 task，ASR 落後超過 6 秒就整輪讓路）。
 每一次跳過都送 `insight_error`，UI 看得到原因。
+
+**LLM provider 可以換**，用 `HUDDLE_LLM_PROVIDER` 環境變數選（預設 `claude-cli`，
+行為完全不變）：
+
+| provider | 說明 | 相關環境變數 |
+|---|---|---|
+| `claude-cli` | 預設，`claude -p ... --output-format json` |（無）|
+| `cli` | 換一支相容的 CLI（同樣的 `-p`/`--output-format json` 合約）| `HUDDLE_LLM_CLI`（工具名，例如 `codex`、`gemini`） |
+| `anthropic-api` | 直接打 Anthropic Messages API | `ANTHROPIC_API_KEY` |
+| `ollama` | 打本地 Ollama 伺服器 | `OLLAMA_HOST`（預設 `http://localhost:11434`）、`HUDDLE_OLLAMA_MODEL`（預設 `llama3.1`） |
+
+```bash
+HUDDLE_LLM_PROVIDER=anthropic-api ANTHROPIC_API_KEY=sk-ant-... python -m huddle.server
+HUDDLE_LLM_PROVIDER=ollama HUDDLE_OLLAMA_MODEL=llama3.1 python -m huddle.server
+```
+
+四個 provider 都一樣：失敗一律送 `insight_error`，不會悄悄吐空結果。
 
 ## eval harness
 

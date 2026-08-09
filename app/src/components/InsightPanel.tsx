@@ -70,11 +70,13 @@ function Card({ insight }: { insight: Insight }) {
 export function InsightPanel({
   insights,
   analysing,
+  quietRounds,
   health,
   scenarioLabel,
 }: {
   insights: Insight[]
   analysing: boolean
+  quietRounds: number
   health: Health
   scenarioLabel: string
 }) {
@@ -101,6 +103,13 @@ export function InsightPanel({
       {insights.map((i) => (
         <Card key={i.id} insight={i} />
       ))}
+
+      {quietRounds > 0 && (
+        // 「跑了但沒有新東西」也要看得見，否則跟「沒在跑」長得一樣
+        <p className="text-xs text-muted-foreground">
+          另有 {quietRounds} 輪分析沒有新內容可補（重複的不會再列一次）
+        </p>
+      )}
 
       {health.insightErrors.length > 0 && (
         <div className="space-y-2">

@@ -59,6 +59,7 @@ export type ServerEvent =
       latency_ms: number
     } & Base)
   | ({ type: "insight_error"; code: string; message: string } & Base)
+  | ({ type: "insight_none"; at_ms: number; latency_ms: number } & Base)
   | ({ type: "insight_pending"; scenario: Scenario; at_ms: number } & Base)
   | ({ type: "speaker_ready"; model: string } & Base)
   | ({

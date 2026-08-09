@@ -222,6 +222,14 @@ Gatekeeper 一樣擋。所以在 Apple Developer Program 的憑證與公證到�
 的但走不通。CI 不會假裝沒事：沒有憑證、沒有公證，各出一則 warning，release notes 裡也
 會有一段講明這顆是什麼狀態、要怎麼硬開。
 
+上面第 1 到 4 步在這個 repo 已經做完了：金鑰對存在、兩半都是 repository secret、Pages 正
+在服務 <https://sammylin.github.io/OpenRoom/appcast.xml>，feed 裡有當前版本的簽章項目。裡
+面那把公鑰是 `WB8oDu+EGNgiVYDD5f+tcYo4OP7XWWJZSvvnyBQ8A/M=`，跟出貨 `Info.plist` 的
+`SUPublicEDKey` 一致。只剩第 5 步的 Apple 簽章 secret 還沒有 —— 而那一步買到的是「第一次
+安裝不用繞過 Gatekeeper」，不是「能不能更新」。
+
+上面那份清單是 fork 出去的人要重做一遍的東西。
+
 ### 發版
 
 推 tag 就出貨，tag 的形狀決定一切：

@@ -239,6 +239,15 @@ output with `auto-update DISABLED (no SPARKLE_PUBLIC_ED_KEY)`, the app writes
 greyed out reading "Updates unavailable — this build has no update key". There is no
 fallback that installs an unverified download, and no flag to turn one on.
 
+Steps 1 to 4 are already done for this repository: the key pair exists, both halves are
+repository secrets, Pages serves <https://sammylin.github.io/OpenRoom/appcast.xml>, and
+the feed carries a signed item for the current release. The public key in it is
+`WB8oDu+EGNgiVYDD5f+tcYo4OP7XWWJZSvvnyBQ8A/M=`, which matches the `SUPublicEDKey` in the
+shipped `Info.plist`. Only step 5, the Apple signing secrets, is outstanding — and that
+one buys a first install without the Gatekeeper detour, not the ability to update.
+
+The list above is what a fork would have to redo.
+
 ### Releasing
 
 **Without a Developer ID certificate and notarization, auto-update is useless in

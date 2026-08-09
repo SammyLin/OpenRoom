@@ -219,6 +219,14 @@ Gatekeeper 在每一台 Mac 上都会把它挡下来**。用户得自己
 补的润色"，是自动更新能不能用的前提。少了哪一样，release workflow 都会印 warning 并照发，
 不会假装一切正常。
 
+上面第 1 到 4 步在这个 repo 已经做完了：密钥对存在、两半都是 repository secret、Pages 正在
+服务 <https://sammylin.github.io/OpenRoom/appcast.xml>，feed 里有当前版本的签名条目。里面那
+把公钥是 `WB8oDu+EGNgiVYDD5f+tcYo4OP7XWWJZSvvnyBQ8A/M=`，和出货 `Info.plist` 的
+`SUPublicEDKey` 一致。只剩第 5 步的 Apple 签名 secret 还没有——而那一步买到的是「第一次安装
+不用绕过 Gatekeeper」，不是「能不能更新」。
+
+上面那份清单是 fork 出去的人要重做一遍的东西。
+
 ### 发版
 
 推 tag 就发版，workflow 从 tag 的形状决定一切：

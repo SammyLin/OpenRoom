@@ -241,6 +241,15 @@ xattr -dr com.apple.quarantine /Applications/OpenRoom.app
 話であり、この 2 つが揃うまでのリリースは「手で落として `xattr -dr com.apple.quarantine` を
 叩ける人だけが使えるもの」だと考えてよい。
 
+上の 1〜4 はこのリポジトリでは設定済みだ。鍵ペアは存在し、両方が repository secret に入って
+いて、Pages が <https://sammylin.github.io/OpenRoom/appcast.xml> を配信しており、フィードには
+現行リリースの署名付きアイテムがある。そこに入っている公開鍵は
+`WB8oDu+EGNgiVYDD5f+tcYo4OP7XWWJZSvvnyBQ8A/M=` で、出荷される `Info.plist` の
+`SUPublicEDKey` と一致する。残っているのは 5 の Apple 署名用 secret だけで、それが買えるのは
+「初回インストールで Gatekeeper を迂回せずに済むこと」であって、更新できるかどうかではない。
+
+上のリストは、fork した人がやり直すことになる作業だ。
+
 ### リリースの出し方
 
 タグを push するだけでよい。バージョンもチャンネルもタグの形から決まる。

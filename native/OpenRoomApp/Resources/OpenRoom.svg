@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="OpenRoom app icon">
+  <!-- Hallmark · pre-emit critique: P5 H4 E5 S5 R5 V4 -->
+  <!-- Built on a 16 px master grid, scaled 64x. Three white shapes survive unchanged at 16 px. -->
+  <rect x="64" y="64" width="896" height="896" rx="192" fill="#3157d5"/>
+  <!-- Plan-view room: north, west, and south walls; east side deliberately open. -->
+  <path d="M256 256H768V384H384V640H768V768H256Z" fill="#fff"/>
+  <!-- Two occupants, offset so neither becomes internal linework or a waveform. -->
+  <rect x="448" y="448" width="128" height="128" fill="#fff"/>
+  <rect x="704" y="448" width="128" height="128" fill="#fff"/>
+</svg>

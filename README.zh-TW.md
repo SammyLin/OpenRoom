@@ -179,9 +179,14 @@ xattr -dr com.apple.quarantine /Applications/OpenRoom.app
 app 關掉那道檢查。對一顆你讀得懂原始碼、自己編出來的執行檔這樣做是合理的；把它當成處理
 別人軟體的習慣則不是。
 
-**這也代表自動更新實際上是停用的。** Sparkle 安裝新版的方式是替換整個 app bundle，而那
-份替換品要過的是同一道 Gatekeeper 檢查。在 Apple 的 secret 到位之前，更新的結局是被拒絕，
-不是換到新版本。
+**自動更新仍然會動，而且這道關卡只需要過這一次。** Gatekeeper 擋的是**你**手動下載的那一
+份；Sparkle 送來的更新不走那條路。`SUUpdateValidator` 的判斷是「EdDSA 簽章驗過**或**
+codesign 與執行中的 app 相符」，兩者滿足其一即可，所以 adhoc build 靠 EdDSA 簽章就更新得
+了。接著 `SUFileManager` 會在安裝前把解開的更新樹上的 `com.apple.quarantine` 移除。第一次
+安裝時過一次 Gatekeeper，成本就只有這樣。
+
+（這個結論是讀 Sparkle 原始碼得到的，不是在第二台機器上實際更新過。它是這條更新路徑值得
+現在就接起來、而不是等憑證的理由，但跨機器的真實更新還沒做過。）
 
 ### 維護者的一次性設定
 

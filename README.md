@@ -207,10 +207,17 @@ reasonable thing to do to a binary you built from source you can read. It is not
 reasonable habit to apply to software generally, and this README is not the place you
 should be learning the command for someone else's download.
 
-**This also disables auto-update in practice.** Sparkle installs the new version by
-replacing the app bundle, and the replacement is subject to the same Gatekeeper check as
-the first download. Until the Apple secrets exist, updates end in a refusal rather than
-a new version.
+**Auto-update still works, and this is the only time you have to do it.** Gatekeeper
+gates the copy *you* downloaded; Sparkle's updates do not go through it.
+`SUUpdateValidator` accepts an update when its EdDSA signature validates *or* its code
+signature matches the running app — either is sufficient, so an ad-hoc build updates on
+the strength of the EdDSA signature alone. `SUFileManager` then strips
+`com.apple.quarantine` from the extracted update before installing it. Getting past
+Gatekeeper once, on first install, is the whole of the cost.
+
+(That reading is from Sparkle's source, not from an observed update on a second machine.
+It is the reason the update path was wired up rather than deferred until a certificate
+exists, but a real cross-machine update has not been performed yet.)
 
 ### Updating itself
 

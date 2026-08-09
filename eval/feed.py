@@ -144,11 +144,17 @@ async def feed(
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "error",
         "-re",                      # ← 真實時間節奏，整個測量的根據
+        # ffmpeg 6.1 起 -re 預設先 burst 0.5 秒才開始節流。那 0.5 秒的音訊是「瞬間到達」的，
+        # 開場那幾個 chunk 的延遲會因此偏樂觀——而開場正是模型還在暖機、最該量準的地方。
+        # 明著鎖成 0，不吃各版本預設值。需要 ffmpeg >= 6.1；更舊的版本會拒絕這個參數而
+        # 直接報錯，那比安靜地量出一組漂亮的假數字好。
+        "-readrate_initial_burst", "0",
         "-i", str(audio),
         "-f", "s16le", "-ac", "1", "-ar", str(SAMPLE_RATE), "-",
     ]
     if limit_sec:
-        cmd[7:7] = ["-t", str(limit_sec)]
+        # 用 -f 定位而不是寫死索引：上面每加一個輸入參數，寫死的偏移量就會悄悄指錯地方。
+        cmd[cmd.index("-f"):cmd.index("-f")] = ["-t", str(limit_sec)]
 
     report = Report()
     send_wall: list[float] = []

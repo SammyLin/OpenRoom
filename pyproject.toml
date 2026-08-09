@@ -10,6 +10,9 @@ requires-python = ">=3.11,<3.13"
 authors = [{ name = "Sammy Lin" }]
 dependencies = [
   "zhconv>=1.4",  # 模型吐簡體，使用者讀繁體
+  # asr_worker.py 的 module-level import。本機一直沒炸是因為 mlx 順手把它拖進來，
+  # 但那是別人的相依樹，不是我們的宣告——沒裝 mlx 的環境（例如 CI）直接 ImportError。
+  "numpy>=1.26",
 ]
 
 [project.optional-dependencies]

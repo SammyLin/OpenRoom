@@ -72,9 +72,6 @@ jobs:
           # 一行都沒碰到它——diarize_worker 的 torch/pyannote 是函式內 import。mlx 同理，
           # 而且它只有 Apple Silicon 有 wheel，ubuntu runner 根本裝不起來。
           uv pip install -e '.[dev,eval]'
-          # numpy 是 openroom/asr_worker.py 的 module-level import，但 pyproject 沒宣告
-          # （本機是 mlx/torch 順手拖進來的）。CI 明著補這一行，不要靠別人的相依樹餵飯。
-          uv pip install numpy
 
       - name: pytest
         run: .venv/bin/python -m pytest -q

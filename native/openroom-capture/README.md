@@ -1,4 +1,4 @@
-# huddle-capture
+# openroom-capture
 
 解決施工順序 #9：macOS 系統音訊擷取。瀏覽器 `getDisplayMedia` 只能分享「分頁／視窗」
 音訊，Teams 桌面版沒有分頁可分享，所以抓不到。ScreenCaptureKit 抓的是系統輸出的
@@ -10,7 +10,7 @@ feeder 共用同一份協定，所以不用改後端一行程式碼。
 ## Build
 
 ```bash
-cd native/huddle-capture
+cd native/openroom-capture
 swift build -c release
 ```
 
@@ -25,13 +25,13 @@ macOS 系統設定 → 隱私權與安全性 → 螢幕與系統錄音，把終�
 ## 跑
 
 ```bash
-# 後端要先跑：python -m huddle.server
-.build/release/huddle-capture --meeting-id my-meeting --scenario discussion
+# 後端要先跑：python -m openroom.server
+.build/release/openroom-capture --meeting-id my-meeting --scenario discussion
 # Ctrl-C 停止
 ```
 
 ```
-usage: huddle-capture [--meeting-id ID] [--host H] [--port P]
+usage: openroom-capture [--meeting-id ID] [--host H] [--port P]
        [--scenario discussion|interview] [--duration SEC] [--verbose]
 ```
 
@@ -41,7 +41,7 @@ insight／講者／錯誤事件）。
 ## 測過的行為
 
 - 跟後端的 `ready` / `start` / 100ms 固定幀 / `stop` / `done` 握手完全照協定走，
-  沒有 gap 事件（`Sources/huddle-capture/WSClient.swift`）。
+  沒有 gap 事件（`Sources/openroom-capture/WSClient.swift`）。
 - 真的放系統音訊（`say` TTS）進去，後端 ASR 收到、轉出逐字稿——不是只收到靜音幀。
 - 沒放聲音時（系統靜音）落地 PCM 全部是 0，後端正確判定 `no_speech`，沒有假訊號。
 

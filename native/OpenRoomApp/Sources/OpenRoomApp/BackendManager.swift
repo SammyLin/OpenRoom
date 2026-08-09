@@ -1,7 +1,7 @@
 import Foundation
 
 /// Phase 1：ASR/diarization 還是 Python（Qwen3-ASR MLX + pyannote），這支只是把它
-/// 包成 sidecar，App 自己 spawn，使用者不用開終端機打 `python -m huddle.server`。
+/// 包成 sidecar，App 自己 spawn，使用者不用開終端機打 `python -m openroom.server`。
 ///
 /// ponytail: 沒做「把 venv/模型一起塞進 .app bundle」——那是分發用的工程，這是單機
 /// 個人工具，repo 路徑固定在這台機器上就夠。之後真的要換 CoreML ASR（Phase 2）
@@ -16,11 +16,11 @@ final class BackendManager: ObservableObject {
 
     /// 專案根目錄。先看環境變數，沒有就退回開發機的固定路徑。
     private var repoRoot: URL {
-        if let override = ProcessInfo.processInfo.environment["HUDDLE_REPO_PATH"] {
+        if let override = ProcessInfo.processInfo.environment["OPENROOM_REPO_PATH"] {
             return URL(fileURLWithPath: override)
         }
         return URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("workspaces/slab/huddle")
+            .appendingPathComponent("workspaces/slab/openroom")
     }
 
     func ensureRunning() {
@@ -37,7 +37,7 @@ final class BackendManager: ObservableObject {
         state = .starting
         let p = Process()
         p.executableURL = python
-        p.arguments = ["-m", "huddle.server"]
+        p.arguments = ["-m", "openroom.server"]
         p.currentDirectoryURL = repoRoot
         let pipe = Pipe()
         p.standardOutput = pipe
@@ -53,7 +53,7 @@ final class BackendManager: ObservableObject {
             try p.run()
             process = p
         } catch {
-            state = .failed("啟動不了 python -m huddle.server: \(error)")
+            state = .failed("啟動不了 python -m openroom.server: \(error)")
             return
         }
         pollUntilReady()

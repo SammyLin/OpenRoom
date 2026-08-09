@@ -24,14 +24,14 @@ def test_feeder_against_stub_server():
 
 def test_analyst():
     """JSON 解析、觸發節流，以及取消時 CLI process 有沒有跟著死。"""
-    from huddle import analyst
+    from openroom import analyst
 
     analyst._selfcheck()
 
 
 def test_tolerant_merge():
     """標點不同的邊界重複要合掉；沒有重疊的不准亂動。"""
-    from huddle.asr_worker import _tolerant_append
+    from openroom.asr_worker import _tolerant_append
 
     orig = lambda c, a, lang: (c + a) if lang == "zh" else f"{c} {a}"
     m = lambda c, a, lang="zh": _tolerant_append(c, a, lang, orig)
@@ -44,7 +44,7 @@ def test_tolerant_merge():
 
 def test_common_prefix_delta():
     """模型改寫已穩定文字時，只能吐出差集，不能整段重發。"""
-    from huddle.asr_worker import _common_prefix_len
+    from openroom.asr_worker import _common_prefix_len
 
     assert _common_prefix_len("hello world", "hello there") == 6
     assert _common_prefix_len("", "abc") == 0

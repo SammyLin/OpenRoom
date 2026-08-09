@@ -30,7 +30,7 @@ struct OnboardingView: View {
                     Text("授權完成就能開始。切到系統設定改完權限，回來這頁會自動更新。")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Label("螢幕錄製沒授權的話，系統音訊模式收不到聲音——切到「系統設定」勾選 Huddle 之後，第一次要重開 app 才會生效。",
+                    Label("螢幕錄製沒授權的話，系統音訊模式收不到聲音——切到「系統設定」勾選 OpenRoom 之後，第一次要重開 app 才會生效。",
                           systemImage: "info.circle")
                         .font(.caption).foregroundStyle(.orange)
                 }
@@ -61,7 +61,7 @@ struct OnboardingView: View {
                     .foregroundStyle(Color.accentColor)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("歡迎使用 Huddle").font(.system(size: 22, weight: .bold))
+                Text("歡迎使用 OpenRoom").font(.system(size: 22, weight: .bold))
                 Text("先給兩個系統權限，錄音才不會半路失敗。").font(.callout).foregroundStyle(.secondary)
             }
         }

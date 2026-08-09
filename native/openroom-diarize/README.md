@@ -1,6 +1,6 @@
-# huddle-diarize
+# openroom-diarize
 
-解決 `huddle/diarize_worker.py` 幾乎每次都吐 `speaker_error` / `hf_token_missing` 的問題：
+解決 `openroom/diarize_worker.py` 幾乎每次都吐 `speaker_error` / `hf_token_missing` 的問題：
 pyannote/speaker-diarization-community-1 是 gated repo，要登入 HuggingFace 換 `HF_TOKEN`，
 而測試環境幾乎從沒設過。
 
@@ -9,30 +9,30 @@ segmentation + WeSpeaker embedding）轉成 CoreML，放在**公開、不用登�
 `FluidInference/speaker-diarization-coreml`。這支 CLI 就是拿 FluidAudio 換掉
 pyannote/HF_TOKEN 那條路——先驗證它真的能跑、真的不用 token，之後才輪到 Python 那邊接線。
 
-**現況：只到這裡。`huddle/server.py` / `huddle/diarize_worker.py` 還沒改，這支還沒被接進去。**
+**現況：只到這裡。`openroom/server.py` / `openroom/diarize_worker.py` 還沒改，這支還沒被接進去。**
 
 ## Build
 
 ```bash
-cd native/huddle-diarize
+cd native/openroom-diarize
 swift build -c release
 ```
 
-跟 `native/huddle-capture` 一樣 Apple Silicon / macOS 14+（FluidAudio 的下限，比
-huddle-capture 的 13+ 高）。第一次 `swift build` 會從 GitHub 抓 FluidAudio 原始碼，
+跟 `native/openroom-capture` 一樣 Apple Silicon / macOS 14+（FluidAudio 的下限，比
+openroom-capture 的 13+ 高）。第一次 `swift build` 會從 GitHub 抓 FluidAudio 原始碼，
 需要網路。
 
 ## 跑
 
 ```bash
-.build/release/huddle-diarize <audio-file>
+.build/release/openroom-diarize <audio-file>
 ```
 
 - 有容器的檔案（`.wav`、`.aiff`、`.caf`…）：直接讀，`AVAudioFile` 自己處理格式/重採樣，
   不限定一定要 16kHz mono——它會 resample。
 - `.pcm` / `.raw`：當作沒有 header 的 16kHz mono s16le 原始 PCM。**這剛好是
-  `huddle/server.py` 自己落地的格式**——`WorkerConfig.record_dir / "audio.raw"`
-  （見 `huddle/server.py:58`）不用轉檔就能直接餵進來。
+  `openroom/server.py` 自己落地的格式**——`WorkerConfig.record_dir / "audio.raw"`
+  （見 `openroom/server.py:58`）不用轉檔就能直接餵進來。
 
 第一次跑會從 HuggingFace 下載模型（segmentation + embedding，共 ~13MB）到
 `~/Library/Application Support/FluidAudio/Models/speaker-diarization/`，之後跑都是本地
@@ -52,7 +52,7 @@ cache，不再連網。**全程不用 `HF_TOKEN`**——這是這支工具存在
 ```
 
 欄位對齊 `docs/protocol.md` 的 `speaker_turns` 事件裡 `turns[]` 的形狀
-（`huddle/diarize_worker.py:_turns()` 產出的同一個 shape、`app/src/lib/protocol.ts`
+（`openroom/diarize_worker.py:_turns()` 產出的同一個 shape、`app/src/lib/protocol.ts`
 的 `SpeakerTurn` 型別）：`speaker`（string，不保證是 `SPEAKER_00` 這種格式，FluidAudio
 給的是 `"1"`、`"2"`…，反正前端本來就會用 `speakerNames()` 依出現順序重新命名，不管原始
 label 長什麼樣）、`start_ms`、`end_ms`（都是整數毫秒）。這支只印 `turns[]` 本體，不印
@@ -65,7 +65,7 @@ label 長什麼樣）、`start_ms`、`end_ms`（都是整數毫秒）。這支�
 16kHz mono s16le WAV、頭尾接起來（含靜音間隔）做出一個 ~22 秒兩講者的測試檔：
 
 ```
-$ .build/release/huddle-diarize test_meeting.wav
+$ .build/release/openroom-diarize test_meeting.wav
 載入 350573 samples（21.9s）…
 載入模型中…（第一次跑會從 HuggingFace 下載 FluidInference/speaker-diarization-coreml，公開 repo，不用 HF_TOKEN）
 [{"speaker":"1","start_ms":0,"end_ms":6834},{"speaker":"1","start_ms":7256,"end_ms":9939},
@@ -87,12 +87,12 @@ $ .build/release/huddle-diarize test_meeting.wav
 
 ## Python 端要怎麼接（下一步，這次沒做）
 
-`huddle/diarize_worker.py` 現在整段邏輯是「pyannote pipeline 常駐在 subprocess 裡，
+`openroom/diarize_worker.py` 現在整段邏輯是「pyannote pipeline 常駐在 subprocess 裡，
 inference 直接呼叫 Python API」。要換成這支 CLI，最小改動大概是：
 
 1. `_load()` 那段（`pyannote.audio` import + `HF_TOKEN` 檢查 + `Pipeline.from_pretrained`）
    整段刪掉，不用再管 gated repo。
-2. `run()` 迴圈裡呼叫 pipeline 的地方，改成 `subprocess.run(["huddle-diarize", raw_pcm_path], capture_output=True)`
+2. `run()` 迴圈裡呼叫 pipeline 的地方，改成 `subprocess.run(["openroom-diarize", raw_pcm_path], capture_output=True)`
    ——但這支 CLI 目前吃的是**檔案路徑**，不是 stdin 流；`run()` 現有的邏輯是把 accumulate
    起來的 `audio: np.ndarray` 傳給 pipeline，改用 CLI 就要先把這段 `audio` 寫成一個暫存
    `.raw` 檔（或者更省事：直接指到 `record_dir/audio.raw`，只是那份是「目前為止」還是

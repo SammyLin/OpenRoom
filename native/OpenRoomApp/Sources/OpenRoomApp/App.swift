@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct HuddleApp: App {
+struct OpenRoomApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

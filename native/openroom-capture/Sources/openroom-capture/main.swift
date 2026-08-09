@@ -27,7 +27,7 @@ while let a = argIter.next() {
     case "--verbose": verbose = true
     case "--help":
         print("""
-        usage: huddle-capture [--meeting-id ID] [--host H] [--port P] \
+        usage: openroom-capture [--meeting-id ID] [--host H] [--port P] \
         [--scenario discussion|interview] [--duration SEC] [--verbose]
         沒給 --duration 就一直錄到 Ctrl-C。
         """)
@@ -47,7 +47,7 @@ sigSrc.resume()
 Task {
     do {
         let wsURL = URL(string: "ws://\(host):\(port)/ws/\(meetingId)")!
-        let client = HuddleClient(url: wsURL)
+        let client = OpenRoomClient(url: wsURL)
         client.verbose = verbose
         client.sendStart(scenario: scenario)
 
@@ -57,7 +57,7 @@ Task {
             try await Task.sleep(nanoseconds: 200_000_000)
             waited += 0.2
             if waited > 90 {
-                eprint("❌ 90 秒沒等到 ready，放棄。後端有跑嗎？（python -m huddle.server）")
+                eprint("❌ 90 秒沒等到 ready，放棄。後端有跑嗎？（python -m openroom.server）")
                 exit(1)
             }
         }
@@ -89,7 +89,7 @@ Task {
 
         let delegate = StreamDelegate()
         let stream = SCStream(filter: filter, configuration: config, delegate: delegate)
-        try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: DispatchQueue(label: "huddle.audio"))
+        try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: DispatchQueue(label: "openroom.audio"))
         try await stream.startCapture()
         print("🎙️  系統音訊擷取中 → \(wsURL.absoluteString)（Ctrl-C 停止）")
 

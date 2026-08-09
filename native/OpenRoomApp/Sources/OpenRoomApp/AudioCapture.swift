@@ -2,7 +2,7 @@ import AVFoundation
 import CoreMedia
 import ScreenCaptureKit
 
-/// 兩種來源都切成 protocol 要求的固定 100ms／3200 bytes 幀，跟 `native/huddle-capture`
+/// 兩種來源都切成 protocol 要求的固定 100ms／3200 bytes 幀，跟 `native/openroom-capture`
 /// 的邏輯同一套（system 那條路直接沿用），mic 走 AVAudioEngine。
 final class AudioCapture: NSObject, ObservableObject, SCStreamOutput, SCStreamDelegate {
     @Published var level: Double = 0
@@ -58,7 +58,7 @@ final class AudioCapture: NSObject, ObservableObject, SCStreamOutput, SCStreamDe
             config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
 
             let s = SCStream(filter: filter, configuration: config, delegate: self)
-            try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "huddle.audio"))
+            try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "openroom.audio"))
             try await s.startCapture()
             stream = s
             return true

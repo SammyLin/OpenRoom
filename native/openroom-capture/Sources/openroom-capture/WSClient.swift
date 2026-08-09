@@ -3,7 +3,7 @@ import Foundation
 /// Client 端實作 docs/protocol.md：送 8-byte header + s16le PCM，收 JSON 事件。
 /// 沒有 reconnect、沒有 ring buffer——跟 Python server 同一個哲學：單機 localhost，
 /// 為不存在的問題（斷線重連）付錢是不必要的複雜度。
-final class HuddleClient: NSObject {
+final class OpenRoomClient: NSObject {
     private let task: URLSessionWebSocketTask
     private var seq: UInt32 = 0
     private(set) var readyReceived = false

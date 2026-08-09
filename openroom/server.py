@@ -270,7 +270,7 @@ async def serve(host: str, port: int, cfg: WorkerConfig, runs_dir: Path,
     handler = lambda ws: handle(ws, cfg, runs_dir, scenario, llm_model, web_search,
                                 diarize_cfg)
     async with websockets.serve(handler, host, port, max_size=None):
-        print(f"huddle server → ws://{host}:{port}/ws/{{meeting_id}}")
+        print(f"openroom server → ws://{host}:{port}/ws/{{meeting_id}}")
         print(f"ASR {cfg.model}，語言 {cfg.language or '自動'}，錄音寫到 {runs_dir}")
         print(f"分析 {llm_model}，場合預設 {SCENARIOS[scenario]['label']}"
               f"，網路查證 {'開' if web_search else '關'}" if llm_model else "分析：關閉")
@@ -279,7 +279,7 @@ async def serve(host: str, port: int, cfg: WorkerConfig, runs_dir: Path,
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="huddle.server")
+    ap = argparse.ArgumentParser(prog="openroom.server")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--model", default="Qwen/Qwen3-ASR-0.6B")

@@ -230,7 +230,7 @@ export function useMeetingSocket(wsBase: string) {
               ...h.errors,
               {
                 code: "ws_error",
-                message: `連不上 ${wsBase}。後端有跑嗎？（python -m huddle.server）`,
+                message: `連不上 ${wsBase}。後端有跑嗎？（python -m openroom.server）`,
                 fatal: true,
               },
             ],

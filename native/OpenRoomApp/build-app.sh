@@ -7,22 +7,22 @@ cd "$(dirname "$0")"
 
 swift build -c release
 
-APP=Huddle.app
+APP=OpenRoom.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
-cp .build/release/HuddleApp "$APP/Contents/MacOS/Huddle"
+cp .build/release/OpenRoomApp "$APP/Contents/MacOS/OpenRoom"
 
 cat > "$APP/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Huddle</string>
-  <key>CFBundleDisplayName</key><string>Huddle</string>
-  <key>CFBundleIdentifier</key><string>ai.huddle.app</string>
+  <key>CFBundleName</key><string>OpenRoom</string>
+  <key>CFBundleDisplayName</key><string>OpenRoom</string>
+  <key>CFBundleIdentifier</key><string>ai.openroom.app</string>
   <key>CFBundleVersion</key><string>0.1.0</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>CFBundleExecutable</key><string>Huddle</string>
+  <key>CFBundleExecutable</key><string>OpenRoom</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSMicrophoneUsageDescription</key><string>麥克風來源要收音才轉逐字稿。</string>

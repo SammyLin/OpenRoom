@@ -66,7 +66,7 @@ export default function App() {
     })
     const a = document.createElement("a")
     a.href = URL.createObjectURL(blob)
-    a.download = `huddle-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`
+    a.download = `openroom-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`
     a.click()
     URL.revokeObjectURL(a.href)
   }, [socket.segments, socket.turns])

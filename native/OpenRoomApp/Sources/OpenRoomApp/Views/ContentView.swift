@@ -10,7 +10,7 @@ struct ContentView: View {
     @State private var busy = false
     // 螢幕錄製沒過就直接跳「開始」，只會在畫面上收到一行英文系統錯誤——onboarding
     // 沒過（且還沒手動跳過）之前，先擋在設定畫面前面把權限講清楚。
-    @AppStorage("huddle.onboarding.skipped") private var onboardingSkipped = false
+    @AppStorage("openroom.onboarding.skipped") private var onboardingSkipped = false
 
     var body: some View {
         Group {
@@ -23,9 +23,9 @@ struct ContentView: View {
         .onAppear { backend.ensureRunning() }
         .onChange(of: backend.state) { s in
             // 測試用 hook：沒有 Accessibility 權限沒法自動化點按鈕，這裡讓
-            // `HUDDLE_AUTOSTART=system` / `mic` 直接跳過 UI 開一場會議。不是給
+            // `OPENROOM_AUTOSTART=system` / `mic` 直接跳過 UI 開一場會議。不是給
             // 使用者用的功能，只在有這個環境變數時才會動。
-            guard s == .ready, let raw = ProcessInfo.processInfo.environment["HUDDLE_AUTOSTART"],
+            guard s == .ready, let raw = ProcessInfo.processInfo.environment["OPENROOM_AUTOSTART"],
                   let auto = AudioSource(rawValue: raw) else { return }
             source = auto
             Task { await start() }
@@ -56,7 +56,7 @@ struct ContentView: View {
     private func export() {
         let md = session.exportMarkdown()
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "huddle-\(Int(Date().timeIntervalSince1970)).md"
+        panel.nameFieldStringValue = "openroom-\(Int(Date().timeIntervalSince1970)).md"
         panel.allowedContentTypes = [.plainText]
         if panel.runModal() == .OK, let url = panel.url {
             try? md.write(to: url, atomically: true, encoding: .utf8)

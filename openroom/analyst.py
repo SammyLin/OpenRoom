@@ -9,10 +9,10 @@ LLM 預設走 ``claude`` CLI 的 print 模式。理由很現實：這台機器�
 但 Claude Code 已經登入過，CLI 直接借用那份授權。代價是每次呼叫都要重付 CLI 啟動與
 system prompt 的錢（實測約 6 秒、$0.12，快取命中後更低），所以觸發頻率必須節制。
 
-provider 可以用 ``HUDDLE_LLM_PROVIDER`` 換掉：``claude-cli``（預設，行為完全不變）、
-``cli``（另一支相容的 CLI，工具名走 ``HUDDLE_LLM_CLI``）、``anthropic-api``（直接打
+provider 可以用 ``OPENROOM_LLM_PROVIDER`` 換掉：``claude-cli``（預設，行為完全不變）、
+``cli``（另一支相容的 CLI，工具名走 ``OPENROOM_LLM_CLI``）、``anthropic-api``（直接打
 Anthropic Messages API，要 ``ANTHROPIC_API_KEY``）、``ollama``（本地 Ollama 伺服器，
-模型名走 ``HUDDLE_OLLAMA_MODEL``）。四個都一樣：失敗要吵，不准悄悄吐空結果。
+模型名走 ``OPENROOM_OLLAMA_MODEL``）。四個都一樣：失敗要吵，不准悄悄吐空結果。
 
 **分析永遠不會擋到收音或逐字稿。** 呼叫在背景 task，同時只跑一個；上一輪還沒回來就
 跳過這一輪，並且送出可見事件——不是靜靜地不做。
@@ -96,9 +96,9 @@ class Analyst:
     scenario: str = "discussion"
     model: str = "claude-sonnet-5"
     web_search: bool = True
-    # 選 provider 走 HUDDLE_LLM_PROVIDER，預設 claude-cli 保留現有行為原封不動。
+    # 選 provider 走 OPENROOM_LLM_PROVIDER，預設 claude-cli 保留現有行為原封不動。
     provider: str = field(
-        default_factory=lambda: os.environ.get("HUDDLE_LLM_PROVIDER", "claude-cli")
+        default_factory=lambda: os.environ.get("OPENROOM_LLM_PROVIDER", "claude-cli")
     )
 
     _transcript: list[str] = field(default_factory=list)
@@ -143,7 +143,7 @@ class Analyst:
             call = PROVIDERS.get(self.provider)
             if call is None:
                 await emit({"type": "insight_error", "code": "llm_config",
-                            "message": f"未知的 HUDDLE_LLM_PROVIDER：{self.provider}"})
+                            "message": f"未知的 OPENROOM_LLM_PROVIDER：{self.provider}"})
                 return
             try:
                 body = await call(self._prompt(), self.model, self.web_search)
@@ -191,7 +191,7 @@ class Analyst:
 
 async def _run_cli(binary: str, prompt: str, model: str, web_search: bool) -> str:
     """跑一個相容 `claude -p ... --output-format json` 合約的 CLI，回傳模型輸出文字
-    （已經拆開 envelope 的 result 欄位）。``claude-cli`` 與 ``cli``（HUDDLE_LLM_CLI
+    （已經拆開 envelope 的 result 欄位）。``claude-cli`` 與 ``cli``（OPENROOM_LLM_CLI
     指定 codex、gemini 之類的其他工具）都走這裡——假設對方也吃得下同一組 flag，這是
     「不要為了支援任何 CLI 就過度設計」的權衡。
     """
@@ -306,10 +306,10 @@ async def _call_ollama(prompt: str, model: str) -> str:
 PROVIDERS = {
     "claude-cli": lambda prompt, model, web_search: _run_cli("claude", prompt, model, web_search),
     "cli": lambda prompt, model, web_search: _run_cli(
-        os.environ.get("HUDDLE_LLM_CLI", "claude"), prompt, model, web_search),
+        os.environ.get("OPENROOM_LLM_CLI", "claude"), prompt, model, web_search),
     "anthropic-api": _call_anthropic_api,
     "ollama": lambda prompt, model, web_search: _call_ollama(
-        prompt, os.environ.get("HUDDLE_OLLAMA_MODEL", "llama3.1")),
+        prompt, os.environ.get("OPENROOM_OLLAMA_MODEL", "llama3.1")),
 }
 
 
@@ -377,11 +377,11 @@ def _selfcheck() -> None:
     # provider 選擇：預設 claude-cli，env var 可以換掉，換到不存在的名字要吵
     assert set(PROVIDERS) == {"claude-cli", "cli", "anthropic-api", "ollama"}
     assert Analyst().provider == "claude-cli"
-    os.environ["HUDDLE_LLM_PROVIDER"] = "ollama"
+    os.environ["OPENROOM_LLM_PROVIDER"] = "ollama"
     try:
         assert Analyst().provider == "ollama"
     finally:
-        del os.environ["HUDDLE_LLM_PROVIDER"]
+        del os.environ["OPENROOM_LLM_PROVIDER"]
 
     # API/Ollama provider 的文字抽取邏輯——不用真的打網路也能測
     assert _text_from_anthropic_response(

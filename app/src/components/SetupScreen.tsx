@@ -46,7 +46,7 @@ export function SetupScreen({
     <div className="mx-auto flex min-h-svh w-full max-w-2xl flex-col justify-center gap-8 px-6 py-16">
       <div className="space-y-3">
         <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
-          Huddle
+          OpenRoom
         </p>
         <h1 className="text-3xl font-semibold tracking-tight">開始一場會議</h1>
         <p className="max-w-md text-sm text-muted-foreground">
@@ -128,7 +128,7 @@ export function SetupScreen({
           {busy ? "連線中…" : "開始"}
         </Button>
         <p className="font-mono text-xs text-muted-foreground">
-          後端要先跑起來：<code>python -m huddle.server</code>
+          後端要先跑起來：<code>python -m openroom.server</code>
           <br />
           第一次啟動要預熱模型約 45 秒，預熱完才會開始收音——這是刻意的，
           否則開場那段會進黑洞。

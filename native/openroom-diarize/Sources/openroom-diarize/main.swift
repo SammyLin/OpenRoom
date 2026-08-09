@@ -6,7 +6,7 @@ import Foundation
 // 公開、不用登入的 FluidInference/speaker-diarization-coreml，換掉這顆就不用管 token。
 //
 // 這支只做一件事：吃一個音檔路徑，跑完整段 diarization，把講者時間軸印成 JSON 到
-// stdout。跟 huddle/diarize_worker.py 的 speaker_turns.turns[] 同一個形狀
+// stdout。跟 openroom/diarize_worker.py 的 speaker_turns.turns[] 同一個形狀
 // （speaker/start_ms/end_ms），Python 端 subprocess 呼叫、parse stdout 就能接上，
 // 不用改協定。
 
@@ -39,7 +39,7 @@ func loadRawPCM(path: String) throws -> [Float] {
 
 /// loadRawPCM 的 s16le 小端解碼——不用模型也不用真的檔案，跑純邏輯。
 func selfcheck() {
-    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("huddle-diarize-selfcheck.pcm")
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("openroom-diarize-selfcheck.pcm")
     // Int16 值：0, 32767 (max), -32768 (min)，都用小端寫入
     let bytes: [UInt8] = [0x00, 0x00, 0xFF, 0x7F, 0x00, 0x80]
     try! Data(bytes).write(to: tmp)
@@ -61,7 +61,7 @@ if args.count == 2, args[1] == "--selfcheck" {
 guard args.count == 2, args[1] != "--help" else {
     eprint(
         """
-        usage: huddle-diarize <audio-file>
+        usage: openroom-diarize <audio-file>
           有容器的檔案（.wav/.aiff/…）：直接讀，AVAudioFile 自己處理格式/重採樣。
           .pcm/.raw：當作無 header 的 16kHz mono s16le 原始 PCM。
         """)

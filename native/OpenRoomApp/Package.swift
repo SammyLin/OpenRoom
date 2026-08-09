@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "huddle-capture",
+    name: "OpenRoomApp",
     platforms: [.macOS(.v13)],
     targets: [
-        .executableTarget(name: "huddle-capture", path: "Sources/huddle-capture")
+        .executableTarget(name: "OpenRoomApp", path: "Sources/OpenRoomApp")
     ]
 )

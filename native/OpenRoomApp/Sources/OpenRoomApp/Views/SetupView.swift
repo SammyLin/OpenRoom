@@ -14,7 +14,7 @@ struct SetupView: View {
             VStack(alignment: .leading, spacing: 28) {
                 header
 
-                section(title: "這是什麼場合") {
+                section(title: L("What kind of session is this")) {
                     HStack(spacing: 10) {
                         ForEach(Scenario.allCases, id: \.self) { sc in
                             pickCard(icon: sc.icon, title: sc.label, detail: sc.detail,
@@ -23,13 +23,13 @@ struct SetupView: View {
                     }
                 }
 
-                section(title: "聲音從哪裡來") {
+                section(title: L("Where is the audio coming from")) {
                     VStack(spacing: 10) {
-                        pickCard(icon: AudioSource.system.icon, title: "系統音訊",
-                                 detail: "ScreenCaptureKit 抓系統輸出，Meet／Teams 網頁版或桌面版都收得到。",
+                        pickCard(icon: AudioSource.system.icon, title: L("System audio"),
+                                 detail: L("ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app."),
                                  selected: source == .system, full: true) { source = .system }
-                        pickCard(icon: AudioSource.mic.icon, title: "麥克風",
-                                 detail: "實體會議室，一支麥克風收全場。",
+                        pickCard(icon: AudioSource.mic.icon, title: L("Microphone"),
+                                 detail: L("A physical meeting room, one microphone for everyone."),
                                  selected: source == .mic, full: true) { source = .mic }
                     }
                 }
@@ -44,7 +44,7 @@ struct SetupView: View {
                 Button(action: onStart) {
                     HStack(spacing: 8) {
                         if busy { ProgressView().controlSize(.small) }
-                        Text(busy ? "連線中…" : "開始")
+                        Text(busy ? L("Connecting…") : L("Start"))
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 2)
@@ -66,8 +66,8 @@ struct SetupView: View {
                     .foregroundStyle(Color.accentColor)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("開始一場會議").font(.system(size: 22, weight: .bold))
-                Text("逐字稿在你的機器上產生，音訊不離開這台電腦。")
+                Text(L("Start a meeting")).font(.system(size: 22, weight: .bold))
+                Text(L("The transcript is produced on your machine. Audio never leaves this computer."))
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
@@ -83,9 +83,11 @@ struct SetupView: View {
     @ViewBuilder private var backendStatus: some View {
         switch backendState {
         case .notStarted, .starting:
-            statusPill(icon: "hourglass", text: "後端啟動中（第一次要預熱模型，約 45 秒）…", tint: .secondary)
+            statusPill(icon: "hourglass",
+                       text: L("Starting backend (the first run warms up the model, about 45 seconds)…"),
+                       tint: .secondary)
         case .ready:
-            statusPill(icon: "checkmark.circle.fill", text: "後端就緒", tint: .green)
+            statusPill(icon: "checkmark.circle.fill", text: L("Backend ready"), tint: .green)
         case .failed(let msg):
             statusPill(icon: "xmark.octagon.fill", text: msg, tint: .red)
         }

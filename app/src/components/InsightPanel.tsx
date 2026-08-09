@@ -1,4 +1,5 @@
 import { AlertTriangle, BookOpen, CircleHelp, Loader2, TriangleAlert, XCircle } from "lucide-react"
+import { useT, type MessageKey } from "@/lib/i18n"
 import { formatClock, type InsightItem } from "@/lib/protocol"
 import type { Health, Insight } from "@/lib/useMeetingSocket"
 import { cn } from "@/lib/utils"
@@ -9,14 +10,33 @@ import { cn } from "@/lib/utils"
  * 最新的一則放在最上面——開會的時候要看的是「現在在講什麼」，不是從頭捲。
  */
 
-const KIND: Record<InsightItem["kind"], { icon: typeof BookOpen; label: string; tone: string }> = {
-  context: { icon: BookOpen, label: "背景", tone: "text-muted-foreground" },
-  fact: { icon: BookOpen, label: "查到的資料", tone: "text-sky-600 dark:text-sky-400" },
-  correction: { icon: XCircle, label: "說法有誤", tone: "text-destructive" },
-  risk: { icon: TriangleAlert, label: "要注意", tone: "text-amber-600 dark:text-amber-400" },
-}
+const KIND: Record<InsightItem["kind"], { icon: typeof BookOpen; label: MessageKey; tone: string }> =
+  {
+    context: {
+      icon: BookOpen,
+      label: "insight.kind.context",
+      tone: "text-muted-foreground",
+    },
+    fact: {
+      icon: BookOpen,
+      label: "insight.kind.fact",
+      tone: "text-sky-600 dark:text-sky-400",
+    },
+    correction: {
+      icon: XCircle,
+      label: "insight.kind.correction",
+      tone: "text-destructive",
+    },
+    risk: {
+      icon: TriangleAlert,
+      label: "insight.kind.risk",
+      tone: "text-amber-600 dark:text-amber-400",
+    },
+  }
 
 function Card({ insight }: { insight: Insight }) {
+  const t = useT()
+
   return (
     <article className="space-y-3 rounded-lg border bg-card p-4">
       <div className="flex items-baseline justify-between gap-2">
@@ -35,7 +55,7 @@ function Card({ insight }: { insight: Insight }) {
               <li key={i} className="flex gap-2.5">
                 <Icon className={cn("mt-0.5 size-3.5 shrink-0", meta.tone)} aria-hidden />
                 <span className="text-sm leading-relaxed text-muted-foreground">
-                  <span className="sr-only">{meta.label}：</span>
+                  <span className="sr-only">{t("insight.srKind", { label: t(meta.label) })}</span>
                   {item.text}
                 </span>
               </li>
@@ -48,7 +68,7 @@ function Card({ insight }: { insight: Insight }) {
         <div className="space-y-1.5 border-t pt-3">
           <p className="flex items-center gap-1.5 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted-foreground">
             <CircleHelp className="size-3" aria-hidden />
-            可以追問
+            {t("insight.questions")}
           </p>
           <ul className="space-y-1.5">
             {insight.questions.map((q, i) => (
@@ -61,7 +81,7 @@ function Card({ insight }: { insight: Insight }) {
       )}
 
       <p className="font-mono text-[0.68rem] text-muted-foreground/70">
-        {(insight.latencyMs / 1000).toFixed(1)} 秒
+        {t("insight.latency", { sec: (insight.latencyMs / 1000).toFixed(1) })}
       </p>
     </article>
   )
@@ -80,23 +100,25 @@ export function InsightPanel({
   health: Health
   scenarioLabel: string
 }) {
+  const t = useT()
+
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
       <div className="flex items-center justify-between">
         <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
-          即時分析 · {scenarioLabel}
+          {t("insight.header", { scenario: scenarioLabel })}
         </h2>
         {analysing && (
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="size-3 animate-spin" aria-hidden />
-            分析中
+            {t("insight.analysing")}
           </span>
         )}
       </div>
 
       {insights.length === 0 && !analysing && (
         <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          累積一段對話之後會自動分析。太短的內容分析不出東西，所以不會每句話都跑。
+          {t("insight.empty")}
         </p>
       )}
 
@@ -106,9 +128,7 @@ export function InsightPanel({
 
       {quietRounds > 0 && (
         // 「跑了但沒有新東西」也要看得見，否則跟「沒在跑」長得一樣
-        <p className="text-xs text-muted-foreground">
-          另有 {quietRounds} 輪分析沒有新內容可補（重複的不會再列一次）
-        </p>
+        <p className="text-xs text-muted-foreground">{t("insight.quiet", { n: quietRounds })}</p>
       )}
 
       {health.insightErrors.length > 0 && (
@@ -123,7 +143,7 @@ export function InsightPanel({
                 aria-hidden
               />
               <p className="text-xs">
-                分析失敗（{e.code}）：{e.message}
+                {t("insight.error", { code: e.code, message: e.message })}
               </p>
             </div>
           ))}

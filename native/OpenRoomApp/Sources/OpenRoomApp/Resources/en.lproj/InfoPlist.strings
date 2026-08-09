@@ -1,0 +1,2 @@
+/* Overrides the values baked into Info.plist by build-app.sh. */
+"NSMicrophoneUsageDescription" = "Recorded only while a meeting is running and only when you pick the microphone as the audio source. The transcript is produced on this Mac and the audio never leaves it.";

@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react"
+import { t } from "./i18n"
 import { CHUNK_SAMPLES, SAMPLE_RATE, type AudioSource } from "./protocol"
 
 /**
@@ -49,9 +50,7 @@ export function useAudioCapture() {
 
         if (stream.getAudioTracks().length === 0) {
           stream.getTracks().forEach((t) => t.stop())
-          throw new Error(
-            "這個來源沒有音訊軌。分享分頁時要勾選「同時分享分頁音訊」。",
-          )
+          throw new Error(t("error.noAudioTrack"))
         }
         streamRef.current = stream
 

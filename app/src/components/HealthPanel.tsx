@@ -1,4 +1,5 @@
 import { AlertTriangle, Activity, CheckCircle2, VolumeX } from "lucide-react"
+import { useT } from "@/lib/i18n"
 import type { Health } from "@/lib/useMeetingSocket"
 import { cn } from "@/lib/utils"
 
@@ -41,6 +42,7 @@ function Row({
 }
 
 export function HealthPanel({ health, engine }: { health: Health; engine: string | null }) {
+  const t = useT()
   const clean =
     health.gaps === 0 && health.errors.length === 0 && health.droppedBeforeReady === 0
   const lost = health.lostMs / 1000
@@ -49,7 +51,7 @@ export function HealthPanel({ health, engine }: { health: Health; engine: string
     <div className="flex h-full flex-col gap-5 overflow-y-auto p-5">
       <div>
         <h2 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
-          管線健康
+          {t("health.title")}
         </h2>
         <div
           className={cn(
@@ -62,50 +64,50 @@ export function HealthPanel({ health, engine }: { health: Health; engine: string
           ) : (
             <AlertTriangle className="size-4" aria-hidden />
           )}
-          {clean ? "沒有丟失任何音訊" : "有音訊沒進到模型"}
+          {clean ? t("health.clean") : t("health.dirty")}
         </div>
       </div>
 
       <div className="divide-y divide-border/60 border-y border-border/60">
         <Row
-          label="音訊缺口"
-          value={health.gaps === 0 ? "0" : `${health.gaps}（${lost.toFixed(1)} 秒）`}
+          label={t("health.gaps")}
+          value={
+            health.gaps === 0
+              ? "0"
+              : t("health.gapsValue", { n: health.gaps, sec: lost.toFixed(1) })
+          }
           tone={health.gaps > 0 ? "bad" : "normal"}
         />
         <Row
-          label="推論來不及"
+          label={t("health.backpressure")}
           value={`${health.backpressure}`}
           tone={health.backpressure > 0 ? "bad" : "normal"}
-          hint="丟包"
+          hint={t("health.backpressureHint")}
         />
         <Row
-          label="送不出去丟棄"
+          label={t("health.droppedBeforeReady")}
           value={`${health.droppedBeforeReady}`}
           tone={health.droppedBeforeReady > 0 ? "warn" : "normal"}
         />
+        <Row label={t("health.noSpeech")} value={`${health.noSpeech}`} hint={t("health.noSpeechHint")} />
         <Row
-          label="判定為靜音"
-          value={`${health.noSpeech}`}
-          hint="段"
-        />
-        <Row
-          label="回頭改寫"
+          label={t("health.revisions")}
           value={`${health.revisions}`}
-          hint="次"
+          hint={t("health.revisionsHint")}
           tone={health.revisions > 0 ? "warn" : "normal"}
         />
         <Row
-          label="最近一次推論"
+          label={t("health.lastInfer")}
           value={health.lastInferMs === null ? "—" : `${health.lastInferMs} ms`}
           tone={health.lastInferMs !== null && health.lastInferMs > 800 ? "warn" : "normal"}
         />
-        <Row label="引擎" value={engine ?? "—"} />
+        <Row label={t("health.engine")} value={engine ?? "—"} />
       </div>
 
       {health.speakerErrors.length > 0 && (
         <div className="space-y-2">
           <h3 className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
-            講者分離
+            {t("health.speakerSection")}
           </h3>
           {health.speakerErrors.map((e, i) => (
             <div key={`${e.code}-${i}`} className="rounded-md border bg-muted/40 p-3">
@@ -119,7 +121,7 @@ export function HealthPanel({ health, engine }: { health: Health; engine: string
       {health.errors.length > 0 && (
         <div className="space-y-2">
           <h3 className="font-mono text-xs uppercase tracking-[0.14em] text-destructive">
-            錯誤
+            {t("health.errorsSection")}
           </h3>
           {health.errors.map((e, i) => (
             <div
@@ -136,11 +138,11 @@ export function HealthPanel({ health, engine }: { health: Health; engine: string
       <div className="mt-auto space-y-2 text-xs text-muted-foreground">
         <p className="flex items-center gap-1.5">
           <Activity className="size-3.5" aria-hidden />
-          延遲目標：partial &lt; 800 ms、final &lt; 3 s
+          {t("health.latencyTarget")}
         </p>
         <p className="flex items-center gap-1.5">
           <VolumeX className="size-3.5" aria-hidden />
-          講者標籤是回填的，比逐字稿晚數十秒才會標上
+          {t("health.speakerNote")}
         </p>
       </div>
     </div>

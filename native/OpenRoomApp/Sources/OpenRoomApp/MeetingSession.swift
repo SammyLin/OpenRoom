@@ -66,10 +66,14 @@ final class MeetingSession: ObservableObject {
     func exportMarkdown() -> String {
         let names = speakerNames(turns)
         let body = groupSegments(segments, turns: turns).map { s -> String in
-            let who = s.speaker.flatMap { names[$0] }
-            return "[\(formatClock(s.startMs))]\(who.map { " \($0)：" } ?? " ")\(s.text)"
+            let clock = formatClock(s.startMs)
+            // 有講者名字時冒號的樣子各語言不同（en ": " / zh、ja "："），所以整行都是一個 key。
+            guard let who = s.speaker.flatMap({ names[$0] }) else {
+                return String(format: L("[%1$@] %2$@"), clock, s.text)
+            }
+            return String(format: L("[%1$@] %2$@: %3$@"), clock, who, s.text)
         }.joined(separator: "\n\n")
-        return "# 會議逐字稿\n\n\(body)\n"
+        return "\(L("# Meeting Transcript"))\n\n\(body)\n"
     }
 
     // MARK: - send
@@ -116,7 +120,8 @@ final class MeetingSession: ObservableObject {
                     guard let self, self.phase != .stopped else { return }
                     self.health.errors.append(HealthError(
                         code: "ws_error",
-                        message: "連線結束：\(error.localizedDescription)。後端有跑嗎？",
+                        message: String(format: L("Connection closed: %@. Is the backend running?"),
+                                        error.localizedDescription),
                         fatal: true))
                     self.phase = .failed
                 }

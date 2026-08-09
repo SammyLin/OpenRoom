@@ -1,0 +1,71 @@
+/* 繁體中文。這是 app 原本唯一的語言，文案直接沿用原文，沒有繞過英文再翻回來。 */
+
+/* Scenario */
+"Discussion" = "討論會議";
+"Fills in background on the tools, terms and numbers people mention, and flags claims worth checking." = "補上被提到的工具、名詞、數字的背景資料，標出值得查證的說法。";
+"Interview" = "面試";
+"Judges whether the candidate's answers are correct or vague, and suggests what to press on next." = "判斷受訪者的答案是否正確、哪裡含糊，並建議接下來該追問什麼。";
+
+/* Speakers */
+"Speaker %lld" = "講者 %lld";
+
+/* Markdown export */
+"# Meeting Transcript" = "# 會議逐字稿";
+"[%1$@] %2$@: %3$@" = "[%1$@] %2$@：%3$@";
+"[%1$@] %2$@" = "[%1$@] %2$@";
+
+/* Backend */
+"%@ not found — run `uv venv --python 3.11` in the repo first" = "找不到 %@——先在 repo 跑 `uv venv --python 3.11`";
+"Backend process exited unexpectedly (exit %lld)" = "後端 process 意外結束（exit %lld）";
+"Could not launch python -m openroom.server: %@" = "啟動不了 python -m openroom.server: %@";
+"Backend never opened port 8000 in 90 seconds" = "後端 90 秒沒開起 port 8000";
+
+/* Audio capture */
+"No display found. ScreenCaptureKit audio capture has to be bound to a display or window." = "找不到 display，ScreenCaptureKit 音訊擷取需要綁一個 display/window";
+"System audio capture failed: %@. On first run you have to grant access in System Settings > Privacy & Security > Screen & System Audio Recording." = "系統音訊擷取失敗：%@。第一次跑要在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」授權。";
+"System audio capture stopped: %@" = "系統音訊擷取中斷：%@";
+"Could not build a %lld Hz mono audio converter" = "建不出 %lld Hz mono 的音訊轉換器";
+"Microphone failed to start: %@" = "麥克風啟動失敗：%@";
+
+/* WebSocket */
+"Connection closed: %@. Is the backend running?" = "連線結束：%@。後端有跑嗎？";
+
+/* Onboarding */
+"Welcome to OpenRoom" = "歡迎使用 OpenRoom";
+"Grant two system permissions first, so recording doesn't die halfway through." = "先給兩個系統權限，錄音才不會半路失敗。";
+"Screen & System Audio Recording" = "螢幕與系統錄音";
+"Needed to capture system audio from Meet, Teams and the like. You can turn it off again in System Settings whenever you want." = "抓 Meet／Teams 等系統音訊要用。之後可以隨時在「系統設定」關掉。";
+"Only used when you pick the Microphone source; system audio mode doesn't need it." = "只有選「麥克風」來源時才用得到，系統音訊模式不需要。";
+"Once both are granted you can start. Change a permission in System Settings and this page updates when you come back." = "授權完成就能開始。切到系統設定改完權限，回來這頁會自動更新。";
+"Without screen recording permission, system audio mode records silence — tick OpenRoom in System Settings, and the first time you also have to restart the app." = "螢幕錄製沒授權的話，系統音訊模式收不到聲音——切到「系統設定」勾選 OpenRoom 之後，第一次要重開 app 才會生效。";
+"Granted" = "已授權";
+"Grant" = "授權";
+"System Settings" = "系統設定";
+"Skip for now, microphone only" = "先跳過，只用麥克風";
+"Continue" = "繼續";
+
+/* Setup */
+"Start a meeting" = "開始一場會議";
+"The transcript is produced on your machine. Audio never leaves this computer." = "逐字稿在你的機器上產生，音訊不離開這台電腦。";
+"What kind of session is this" = "這是什麼場合";
+"Where is the audio coming from" = "聲音從哪裡來";
+"System audio" = "系統音訊";
+"ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app." = "ScreenCaptureKit 抓系統輸出，Meet／Teams 網頁版或桌面版都收得到。";
+"Microphone" = "麥克風";
+"A physical meeting room, one microphone for everyone." = "實體會議室，一支麥克風收全場。";
+"Starting backend (the first run warms up the model, about 45 seconds)…" = "後端啟動中（第一次要預熱模型，約 45 秒）…";
+"Backend ready" = "後端就緒";
+"Connecting…" = "連線中…";
+"Start" = "開始";
+
+/* Live */
+"Recording" = "錄製中";
+"Warming up" = "預熱中";
+"Stopped" = "已停止";
+"Export" = "匯出";
+"Stop" = "停止";
+"Warming up…" = "預熱中…";
+"No transcript yet" = "還沒有逐字稿";
+"Analysing…" = "分析中…";
+"No background notes yet. They show up once there is enough conversation." = "還沒有背景資料。累積夠多對話後會自動出現。";
+"Pipeline health" = "管線健康";

@@ -3,13 +3,14 @@ import { Download, Radio, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { HealthPanel } from "@/components/HealthPanel"
 import { InsightPanel } from "@/components/InsightPanel"
+import { LanguagePicker } from "@/components/LanguagePicker"
 import { SetupScreen } from "@/components/SetupScreen"
 import { TranscriptStream } from "@/components/TranscriptStream"
+import { useT } from "@/lib/i18n"
 import {
-  SCENARIOS,
   formatClock,
   groupSegments,
-  speakerNames,
+  speakerIndex,
   type AudioSource,
   type Scenario,
 } from "@/lib/protocol"
@@ -19,6 +20,7 @@ import { useMeetingSocket } from "@/lib/useMeetingSocket"
 const WS_BASE = import.meta.env.VITE_WS_BASE ?? "ws://127.0.0.1:8000"
 
 export default function App() {
+  const t = useT()
   const [source, setSource] = useState<AudioSource>("system")
   const [scenario, setScenario] = useState<Scenario>("discussion")
   const [busy, setBusy] = useState(false)
@@ -54,14 +56,15 @@ export default function App() {
 
   const exportTranscript = useCallback(() => {
     // 匯出跟畫面看到的一樣是段落，不是一行一秒的碎片
-    const names = speakerNames(socket.turns)
+    const index = speakerIndex(socket.turns)
     const body = groupSegments(socket.segments, socket.turns)
       .map((s) => {
-        const who = names.get(s.speaker)
-        return `[${formatClock(s.startMs)}]${who ? ` ${who}：` : " "}${s.text}`
+        const n = index.get(s.speaker)
+        const who = n === undefined ? " " : ` ${t("export.speakerLabel", { name: t("speaker.n", { n }) })}`
+        return `[${formatClock(s.startMs)}]${who}${s.text}`
       })
       .join("\n\n")
-    const blob = new Blob([`# 會議逐字稿\n\n${body}\n`], {
+    const blob = new Blob([`# ${t("export.title")}\n\n${body}\n`], {
       type: "text/markdown;charset=utf-8",
     })
     const a = document.createElement("a")
@@ -69,7 +72,7 @@ export default function App() {
     a.download = `openroom-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`
     a.click()
     URL.revokeObjectURL(a.href)
-  }, [socket.segments, socket.turns])
+  }, [socket.segments, socket.turns, t])
 
   // 一句逐字稿都沒有就結束 = 這場根本沒開始。回設定畫面並帶著錯誤，不要停在一個
   // 空白的「已停止」畫面讓人猜發生什麼事。
@@ -107,7 +110,7 @@ export default function App() {
             aria-hidden
           />
           <span className="font-mono text-xs uppercase tracking-[0.14em]">
-            {live ? "錄製中" : warming ? "預熱中" : "已停止"}
+            {live ? t("status.live") : warming ? t("status.warming") : t("status.stopped")}
           </span>
         </div>
 
@@ -119,7 +122,7 @@ export default function App() {
         <div
           className="h-1.5 w-28 overflow-hidden rounded-full bg-muted"
           role="meter"
-          aria-label="輸入音量"
+          aria-label={t("meter.input")}
           aria-valuenow={Math.round(capture.level * 100)}
         >
           <div
@@ -129,6 +132,7 @@ export default function App() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          <LanguagePicker />
           <Button
             variant="ghost"
             size="sm"
@@ -136,11 +140,11 @@ export default function App() {
             disabled={socket.segments.length === 0}
           >
             <Download className="size-4" aria-hidden />
-            匯出
+            {t("action.export")}
           </Button>
           <Button variant={live ? "destructive" : "secondary"} size="sm" onClick={stop} disabled={!live}>
             <Square className="size-4" aria-hidden />
-            停止
+            {t("action.stop")}
           </Button>
         </div>
       </header>
@@ -161,14 +165,14 @@ export default function App() {
               analysing={socket.analysing}
               quietRounds={socket.quietRounds}
               health={socket.health}
-              scenarioLabel={SCENARIOS.find((s) => s.id === scenario)?.label ?? ""}
+              scenarioLabel={t(`scenario.${scenario}.label`)}
             />
           </div>
           {/* 管線健康擺在收合區：平常不該佔版面，但出事時必須找得到 */}
           <details className="shrink-0 border-t">
             <summary className="cursor-pointer px-4 py-2.5 font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground">
-              管線健康
-              {!clean && <span className="ml-2 text-destructive">有問題</span>}
+              {t("health.title")}
+              {!clean && <span className="ml-2 text-destructive">{t("health.problem")}</span>}
             </summary>
             <div className="max-h-72 overflow-y-auto border-t">
               <HealthPanel health={socket.health} engine={socket.engine} />

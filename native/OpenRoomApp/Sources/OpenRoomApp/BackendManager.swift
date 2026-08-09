@@ -31,7 +31,8 @@ final class BackendManager: ObservableObject {
         }
         let python = repoRoot.appendingPathComponent(".venv/bin/python")
         guard FileManager.default.fileExists(atPath: python.path) else {
-            state = .failed("找不到 \(python.path)——先在 repo 跑 `uv venv --python 3.11`")
+            state = .failed(String(format: L("%@ not found — run `uv venv --python 3.11` in the repo first"),
+                                   python.path))
             return
         }
         state = .starting
@@ -45,7 +46,8 @@ final class BackendManager: ObservableObject {
         p.terminationHandler = { [weak self] proc in
             DispatchQueue.main.async {
                 if proc.terminationStatus != 0, case .starting = self?.state ?? .notStarted {
-                    self?.state = .failed("後端 process 意外結束（exit \(proc.terminationStatus)）")
+                    self?.state = .failed(String(format: L("Backend process exited unexpectedly (exit %lld)"),
+                                                 Int(proc.terminationStatus)))
                 }
             }
         }
@@ -53,7 +55,8 @@ final class BackendManager: ObservableObject {
             try p.run()
             process = p
         } catch {
-            state = .failed("啟動不了 python -m openroom.server: \(error)")
+            state = .failed(String(format: L("Could not launch python -m openroom.server: %@"),
+                                   error.localizedDescription))
             return
         }
         pollUntilReady()
@@ -66,7 +69,7 @@ final class BackendManager: ObservableObject {
             return
         }
         if elapsed > 90 {
-            DispatchQueue.main.async { self.state = .failed("後端 90 秒沒開起 port 8000") }
+            DispatchQueue.main.async { self.state = .failed(L("Backend never opened port 8000 in 90 seconds")) }
             return
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {

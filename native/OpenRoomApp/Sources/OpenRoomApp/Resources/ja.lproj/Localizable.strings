@@ -1,0 +1,72 @@
+/* 日本語。エラーは丁寧語だが曖昧にはしない——原因と次にやることを必ず残す。
+   UI ラベルは macOS の標準用語（システム設定、マイク、書き出す）に合わせる。 */
+
+/* Scenario */
+"Discussion" = "ディスカッション";
+"Fills in background on the tools, terms and numbers people mention, and flags claims worth checking." = "話に出たツール・用語・数字の背景を補い、裏を取るべき主張に印を付けます。";
+"Interview" = "面接";
+"Judges whether the candidate's answers are correct or vague, and suggests what to press on next." = "回答が正しいか、どこが曖昧かを判定し、次に何を突っ込んで聞くべきかを提案します。";
+
+/* Speakers */
+"Speaker %lld" = "話者 %lld";
+
+/* Markdown export */
+"# Meeting Transcript" = "# 会議の文字起こし";
+"[%1$@] %2$@: %3$@" = "[%1$@] %2$@：%3$@";
+"[%1$@] %2$@" = "[%1$@] %2$@";
+
+/* Backend */
+"%@ not found — run `uv venv --python 3.11` in the repo first" = "%@ が見つかりません。先に repo で `uv venv --python 3.11` を実行してください";
+"Backend process exited unexpectedly (exit %lld)" = "バックエンドのプロセスが予期せず終了しました（exit %lld）";
+"Could not launch python -m openroom.server: %@" = "python -m openroom.server を起動できません: %@";
+"Backend never opened port 8000 in 90 seconds" = "バックエンドが 90 秒たってもポート 8000 を開きませんでした";
+
+/* Audio capture */
+"No display found. ScreenCaptureKit audio capture has to be bound to a display or window." = "ディスプレイが見つかりません。ScreenCaptureKit の音声キャプチャはディスプレイかウインドウに紐付ける必要があります";
+"System audio capture failed: %@. On first run you have to grant access in System Settings > Privacy & Security > Screen & System Audio Recording." = "システム音声のキャプチャに失敗しました: %@。初回は「システム設定 > プライバシーとセキュリティ > 画面とシステムオーディオの記録」で許可が必要です。";
+"System audio capture stopped: %@" = "システム音声のキャプチャが中断しました: %@";
+"Could not build a %lld Hz mono audio converter" = "%lld Hz モノラルのオーディオコンバータを作成できません";
+"Microphone failed to start: %@" = "マイクを起動できませんでした: %@";
+
+/* WebSocket */
+"Connection closed: %@. Is the backend running?" = "接続が切れました: %@。バックエンドは動いていますか？";
+
+/* Onboarding */
+"Welcome to OpenRoom" = "OpenRoom へようこそ";
+"Grant two system permissions first, so recording doesn't die halfway through." = "先にシステム権限を 2 つ許可しておくと、録音が途中で止まりません。";
+"Screen & System Audio Recording" = "画面とシステムオーディオの記録";
+"Needed to capture system audio from Meet, Teams and the like. You can turn it off again in System Settings whenever you want." = "Meet や Teams などのシステム音声を取り込むのに使います。あとから「システム設定」でいつでも解除できます。";
+"Only used when you pick the Microphone source; system audio mode doesn't need it." = "音声ソースに「マイク」を選んだときだけ使います。システム音声モードでは不要です。";
+"Once both are granted you can start. Change a permission in System Settings and this page updates when you come back." = "許可が済めば開始できます。システム設定で権限を変えて戻ってくると、この画面は自動で更新されます。";
+"Without screen recording permission, system audio mode records silence — tick OpenRoom in System Settings, and the first time you also have to restart the app." = "画面収録が未許可だと、システム音声モードは無音しか録れません。「システム設定」で OpenRoom にチェックを入れ、初回はアプリの再起動も必要です。";
+"Granted" = "許可済み";
+"Grant" = "許可する";
+"System Settings" = "システム設定";
+"Skip for now, microphone only" = "今はスキップ（マイクのみ）";
+"Continue" = "続ける";
+
+/* Setup */
+"Start a meeting" = "会議を始める";
+"The transcript is produced on your machine. Audio never leaves this computer." = "文字起こしはこの Mac の中で作られます。音声はこのコンピュータから出ません。";
+"What kind of session is this" = "どんな場ですか";
+"Where is the audio coming from" = "音声はどこから";
+"System audio" = "システム音声";
+"ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app." = "ScreenCaptureKit がシステム出力を取り込むので、Meet や Teams はブラウザ版でもデスクトップ版でも拾えます。";
+"Microphone" = "マイク";
+"A physical meeting room, one microphone for everyone." = "対面の会議室で、1 本のマイクで全員ぶんを拾います。";
+"Starting backend (the first run warms up the model, about 45 seconds)…" = "バックエンドを起動中（初回はモデルのウォームアップに約 45 秒）…";
+"Backend ready" = "バックエンド準備完了";
+"Connecting…" = "接続中…";
+"Start" = "開始";
+
+/* Live */
+"Recording" = "録音中";
+"Warming up" = "ウォームアップ中";
+"Stopped" = "停止済み";
+"Export" = "書き出す";
+"Stop" = "停止";
+"Warming up…" = "ウォームアップ中…";
+"No transcript yet" = "文字起こしはまだありません";
+"Analysing…" = "分析中…";
+"No background notes yet. They show up once there is enough conversation." = "背景情報はまだありません。会話がある程度たまると自動で出てきます。";
+"Pipeline health" = "パイプラインの状態";

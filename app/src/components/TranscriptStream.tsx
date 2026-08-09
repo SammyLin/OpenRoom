@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react"
-import { formatClock, groupSegments, speakerNames, type SpeakerTurn } from "@/lib/protocol"
+import { useT } from "@/lib/i18n"
+import { formatClock, groupSegments, speakerIndex, type SpeakerTurn } from "@/lib/protocol"
 import type { Segment } from "@/lib/useMeetingSocket"
 
 export function TranscriptStream({
@@ -13,12 +14,13 @@ export function TranscriptStream({
   warming: boolean
   turns: SpeakerTurn[]
 }) {
+  const t = useT()
   const endRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const pinnedRef = useRef(true)
   // 一個 final 是一秒 chunk 的增量，直接畫就是一行一秒。合併成段落再畫。
   const paragraphs = useMemo(() => groupSegments(segments, turns), [segments, turns])
-  const names = useMemo(() => speakerNames(turns), [turns])
+  const index = useMemo(() => speakerIndex(turns), [turns])
 
   // 使用者往上捲去看前面時，不要把他拉回底部
   useEffect(() => {
@@ -42,15 +44,12 @@ export function TranscriptStream({
           <div
             className="mx-auto h-1 w-32 overflow-hidden rounded-full bg-muted"
             role="progressbar"
-            aria-label="模型預熱中"
+            aria-label={t("warm.aria")}
           >
             <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
           </div>
-          <p className="text-sm font-medium">正在預熱模型</p>
-          <p className="text-sm text-muted-foreground">
-            第一次推論要編譯 GPU kernel，約 45 秒。預熱完才開始收音，
-            所以你不會漏掉開場。
-          </p>
+          <p className="text-sm font-medium">{t("warm.title")}</p>
+          <p className="text-sm text-muted-foreground">{t("warm.detail")}</p>
         </div>
       </div>
     )
@@ -61,25 +60,28 @@ export function TranscriptStream({
       <div className="mx-auto flex max-w-3xl flex-col gap-4">
         {segments.length === 0 && !partial && (
           <p className="py-16 text-center text-sm text-muted-foreground">
-            在聽了。開始講話就會出現逐字稿。
+            {t("transcript.empty")}
           </p>
         )}
 
-        {paragraphs.map((s) => (
-          <article key={s.id} className="grid grid-cols-[3.5rem_1fr] gap-4">
-            <time className="pt-0.5 font-mono text-xs tabular-nums text-muted-foreground">
-              {formatClock(s.startMs)}
-            </time>
-            <div>
-              {names.has(s.speaker) && (
-                <p className="mb-0.5 text-xs font-medium text-muted-foreground">
-                  {names.get(s.speaker)}
-                </p>
-              )}
-              <p className="text-[0.975rem] leading-relaxed">{s.text}</p>
-            </div>
-          </article>
-        ))}
+        {paragraphs.map((s) => {
+          const n = index.get(s.speaker)
+          return (
+            <article key={s.id} className="grid grid-cols-[3.5rem_1fr] gap-4">
+              <time className="pt-0.5 font-mono text-xs tabular-nums text-muted-foreground">
+                {formatClock(s.startMs)}
+              </time>
+              <div>
+                {n !== undefined && (
+                  <p className="mb-0.5 text-xs font-medium text-muted-foreground">
+                    {t("speaker.n", { n })}
+                  </p>
+                )}
+                <p className="text-[0.975rem] leading-relaxed">{s.text}</p>
+              </div>
+            </article>
+          )
+        })}
 
         {partial && (
           <article className="grid grid-cols-[3.5rem_1fr] gap-4">

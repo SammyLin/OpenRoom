@@ -43,7 +43,7 @@ final class AudioCapture: NSObject, ObservableObject, SCStreamOutput, SCStreamDe
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             guard let display = content.displays.first else {
-                await setError("找不到 display，ScreenCaptureKit 音訊擷取需要綁一個 display/window")
+                await setError(L("No display found. ScreenCaptureKit audio capture has to be bound to a display or window."))
                 return false
             }
             let filter = SCContentFilter(display: display, excludingWindows: [])
@@ -63,7 +63,9 @@ final class AudioCapture: NSObject, ObservableObject, SCStreamOutput, SCStreamDe
             stream = s
             return true
         } catch {
-            await setError("系統音訊擷取失敗：\(error.localizedDescription)。第一次跑要在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」授權。")
+            await setError(String(
+                format: L("System audio capture failed: %@. On first run you have to grant access in System Settings > Privacy & Security > Screen & System Audio Recording."),
+                error.localizedDescription))
             return false
         }
     }
@@ -74,7 +76,9 @@ final class AudioCapture: NSObject, ObservableObject, SCStreamOutput, SCStreamDe
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        Task { await setError("系統音訊擷取中斷：\(error.localizedDescription)") }
+        Task {
+            await setError(String(format: L("System audio capture stopped: %@"), error.localizedDescription))
+        }
     }
 
     private static func floatsToS16LE(_ sampleBuffer: CMSampleBuffer) -> Data? {
@@ -100,7 +104,7 @@ final class AudioCapture: NSObject, ObservableObject, SCStreamOutput, SCStreamDe
         guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(SAMPLE_RATE),
                                           channels: 1, interleaved: false) else { return false }
         guard let converter = AVAudioConverter(from: hwFormat, to: target) else {
-            setErrorSync("建不出 \(SAMPLE_RATE)Hz mono 的音訊轉換器")
+            setErrorSync(String(format: L("Could not build a %lld Hz mono audio converter"), SAMPLE_RATE))
             return false
         }
         input.installTap(onBus: 0, bufferSize: 1600, format: hwFormat) { [weak self] buffer, _ in
@@ -122,7 +126,7 @@ final class AudioCapture: NSObject, ObservableObject, SCStreamOutput, SCStreamDe
             micRunning = true
             return true
         } catch {
-            setErrorSync("麥克風啟動失敗：\(error.localizedDescription)")
+            setErrorSync(String(format: L("Microphone failed to start: %@"), error.localizedDescription))
             return false
         }
     }

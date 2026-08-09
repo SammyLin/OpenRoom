@@ -1,28 +1,14 @@
 import { AlertTriangle, Mic, MonitorSpeaker } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { LanguagePicker } from "@/components/LanguagePicker"
+import { useT, type MessageKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { SCENARIOS, type AudioSource, type Scenario } from "@/lib/protocol"
 
-const SOURCES: {
-  id: AudioSource
-  icon: typeof Mic
-  title: string
-  detail: string
-  caveat?: string
-}[] = [
-  {
-    id: "system",
-    icon: MonitorSpeaker,
-    title: "分頁音訊",
-    detail: "錄 Google Meet、Teams 網頁版。分享時要勾「同時分享分頁音訊」。",
-    caveat: "Teams 桌面 app 抓不到，那需要 macOS 系統音訊擷取（還沒做）。",
-  },
-  {
-    id: "mic",
-    icon: Mic,
-    title: "麥克風",
-    detail: "實體會議室，一支麥克風收全場。",
-  },
+// 文案在 i18n.ts 的 source.* key，這裡只留圖示與「有沒有但書」
+const SOURCES: { id: AudioSource; icon: typeof Mic; caveat?: MessageKey }[] = [
+  { id: "system", icon: MonitorSpeaker, caveat: "source.system.caveat" },
+  { id: "mic", icon: Mic },
 ]
 
 export function SetupScreen({
@@ -42,33 +28,34 @@ export function SetupScreen({
   busy: boolean
   error: string | null
 }) {
+  const t = useT()
+
   return (
     <div className="mx-auto flex min-h-svh w-full max-w-2xl flex-col justify-center gap-8 px-6 py-16">
       <div className="space-y-3">
-        <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
-          OpenRoom
-        </p>
-        <h1 className="text-3xl font-semibold tracking-tight">開始一場會議</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          逐字稿在你的機器上產生，音訊不離開這台電腦。
-        </p>
+        <div className="flex items-center justify-between gap-4">
+          <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
+            OpenRoom
+          </p>
+          <LanguagePicker className="-mr-2" />
+        </div>
+        <h1 className="text-3xl font-semibold tracking-tight">{t("setup.heading")}</h1>
+        <p className="max-w-md text-sm text-muted-foreground">{t("setup.tagline")}</p>
       </div>
 
       <fieldset className="space-y-3">
         <legend className="font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
-          這是什麼場合
+          {t("setup.scenarioLegend")}
         </legend>
-        <p className="text-sm text-muted-foreground">
-          場合決定分析怎麼做，逐字稿不受影響。
-        </p>
+        <p className="text-sm text-muted-foreground">{t("setup.scenarioHint")}</p>
         <div className="grid gap-2 sm:grid-cols-2">
           {SCENARIOS.map((s) => {
-            const active = scenario === s.id
+            const active = scenario === s
             return (
               <button
-                key={s.id}
+                key={s}
                 type="button"
-                onClick={() => onScenario(s.id)}
+                onClick={() => onScenario(s)}
                 aria-pressed={active}
                 className={cn(
                   "rounded-lg border p-3 text-left transition-colors",
@@ -76,8 +63,10 @@ export function SetupScreen({
                   active ? "border-primary bg-accent" : "border-border hover:bg-accent/50",
                 )}
               >
-                <span className="block text-sm font-medium">{s.label}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{s.detail}</span>
+                <span className="block text-sm font-medium">{t(`scenario.${s}.label`)}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {t(`scenario.${s}.detail`)}
+                </span>
               </button>
             )
           })}
@@ -86,7 +75,7 @@ export function SetupScreen({
 
       <fieldset className="grid gap-3">
         <legend className="mb-3 font-mono text-xs uppercase tracking-[0.14em] text-muted-foreground">
-          聲音從哪裡來
+          {t("setup.sourceLegend")}
         </legend>
         {SOURCES.map((s) => {
           const Icon = s.icon
@@ -105,10 +94,12 @@ export function SetupScreen({
             >
               <Icon className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
               <span className="space-y-1">
-                <span className="block font-medium">{s.title}</span>
-                <span className="block text-sm text-muted-foreground">{s.detail}</span>
+                <span className="block font-medium">{t(`source.${s.id}.title`)}</span>
+                <span className="block text-sm text-muted-foreground">
+                  {t(`source.${s.id}.detail`)}
+                </span>
                 {s.caveat && (
-                  <span className="block text-xs text-muted-foreground/80">{s.caveat}</span>
+                  <span className="block text-xs text-muted-foreground/80">{t(s.caveat)}</span>
                 )}
               </span>
             </button>
@@ -125,13 +116,13 @@ export function SetupScreen({
 
       <div className="space-y-3">
         <Button size="lg" onClick={onStart} disabled={busy} className="w-full sm:w-auto">
-          {busy ? "連線中…" : "開始"}
+          {busy ? t("setup.connecting") : t("setup.start")}
         </Button>
         <p className="font-mono text-xs text-muted-foreground">
-          後端要先跑起來：<code>python -m openroom.server</code>
+          {t("setup.backendHint")}
+          <code>python -m openroom.server</code>
           <br />
-          第一次啟動要預熱模型約 45 秒，預熱完才會開始收音——這是刻意的，
-          否則開場那段會進黑洞。
+          {t("setup.warmupNote")}
         </p>
       </div>
     </div>

@@ -48,12 +48,12 @@ struct LiveView: View {
             Spacer()
 
             Button(action: onExport) {
-                Label("匯出", systemImage: "square.and.arrow.up")
+                Label(L("Export"), systemImage: "square.and.arrow.up")
             }
             .disabled(session.segments.isEmpty)
 
             Button(role: .destructive, action: onStop) {
-                Label("停止", systemImage: "stop.fill")
+                Label(L("Stop"), systemImage: "stop.fill")
             }
             .disabled(session.phase != .live)
         }
@@ -65,9 +65,9 @@ struct LiveView: View {
 
     private var statusText: String {
         switch session.phase {
-        case .live: return "錄製中"
-        case .warming, .connecting: return "預熱中"
-        default: return "已停止"
+        case .live: return L("Recording")
+        case .warming, .connecting: return L("Warming up")
+        default: return L("Stopped")
         }
     }
 
@@ -86,7 +86,7 @@ struct LiveView: View {
                 if session.segments.isEmpty && session.partial.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "waveform").font(.system(size: 28)).foregroundStyle(.tertiary)
-                        Text(session.phase == .warming ? "預熱中…" : "還沒有逐字稿")
+                        Text(session.phase == .warming ? L("Warming up…") : L("No transcript yet"))
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
@@ -129,13 +129,13 @@ struct LiveView: View {
                     Text(scenarioLabel).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                         .textCase(.uppercase)
                     if session.analysing {
-                        Label("分析中…", systemImage: "sparkles").font(.caption).foregroundStyle(.secondary)
+                        Label(L("Analysing…"), systemImage: "sparkles").font(.caption).foregroundStyle(.secondary)
                     }
                     ForEach(session.insights) { ins in
                         insightCard(ins)
                     }
                     if session.insights.isEmpty && !session.analysing {
-                        Text("還沒有背景資料。累積夠多對話後會自動出現。")
+                        Text(L("No background notes yet. They show up once there is enough conversation."))
                             .font(.caption).foregroundStyle(.tertiary)
                     }
                 }.padding(14)
@@ -146,7 +146,7 @@ struct LiveView: View {
             } label: {
                 HStack(spacing: 6) {
                     Circle().fill(session.health.clean ? Color.green : Color.orange).frame(width: 6, height: 6)
-                    Text("管線健康")
+                    Text(L("Pipeline health"))
                 }
             }
             .font(.caption).padding(12)

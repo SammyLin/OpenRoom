@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react"
+import { t } from "./i18n"
 import {
   CHUNK_MS,
   SAMPLE_RATE,
@@ -230,7 +231,7 @@ export function useMeetingSocket(wsBase: string) {
               ...h.errors,
               {
                 code: "ws_error",
-                message: `連不上 ${wsBase}。後端有跑嗎？（python -m openroom.server）`,
+                message: t("error.wsFailed", { base: wsBase }),
                 fatal: true,
               },
             ],

@@ -1,170 +1,202 @@
 # OpenRoom
 
-單機的即時會議轉錄工具。Apple Silicon Mac，一次一場會議。
+[English](README.md) · [繁體中文](README.zh-TW.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-從舊版（`github.com/SammyLin/huddle` 的 Python/FastAPI/React 版本）重寫。舊版的失敗
-不在語言或框架，而在**每一條失敗路徑都是靜音的**：session 未就緒的音訊靜默丟棄、
-socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料產生器、能量低於固定門檻
-靜默跳過。使用者看到的結果是「不會收音，也不會分析」，而且無法定位。
+Local-only live meeting transcription. Apple Silicon Mac, one meeting at a time.
 
-所以這版的第一守則不是模型品質，是：
+A rewrite of the old version (the Python/FastAPI/React project at
+`github.com/SammyLin/huddle`). What killed the old version was not the language or the
+framework, it was that **every failure path was silent**: audio arriving before the
+session was ready got dropped without a word, sending on an unopened socket silently
+returned false, a typo in an engine name silently fell back to a fake-data generator,
+energy below a hardcoded threshold was silently skipped. What the user saw was "it
+doesn't pick up audio, and it doesn't analyze either", with no way to tell which part
+had broken.
 
-> **不准靜默降級。** 任何降級、丟棄、跳過，都必須送出可見事件。
+So the first rule of this version is not model quality:
 
-## 決策
+> **No silent degradation.** Every degradation, drop, or skip must emit a visible event.
 
-| 項目 | 決定 |
+## Decisions
+
+| Item | Decision |
 |---|---|
-| 形態 | 單機個人工具。一次一場會議，Apple Silicon only |
-| 後端 | Python 3.11 |
-| 前端 | Tailwind + shadcn（UX 重新設計） |
-| ASR | Qwen3-ASR MLX（本機） |
-| Diarization | pyannote.audio，**與 ASR 分成兩個 process** |
-| 語言 | 中英雙一級，含句中夾雜 |
-| 音訊來源 | macOS 系統音訊擷取（錄 Teams / Google Meet） |
-| 儲存 | SQLite |
-| 不做 | Postgres、Docker、Cloud Run、JWT、CORS、rate limit、simulator |
+| Form | Single-machine personal tool. One meeting at a time, Apple Silicon only |
+| Backend | Python 3.11 |
+| Frontend | Tailwind + shadcn (UX redesigned) |
+| ASR | Qwen3-ASR MLX (on-device) |
+| Diarization | pyannote.audio, **in a separate process from ASR** |
+| Languages | Chinese and English both first-class, including intra-sentence mixing |
+| Audio source | macOS system audio capture (records Teams / Google Meet) |
+| Storage | SQLite |
+| Not doing | Postgres, Docker, Cloud Run, JWT, CORS, rate limiting, simulator |
 
-### 及格線（沿用舊版 PRD §4 NFR）
+### Pass marks (carried over from the old PRD §4 NFR)
 
-| 指標 | 目標 |
+| Metric | Target |
 |---|---|
-| partial 延遲 | < 800 ms P95 |
-| final 延遲 | < 3 s P95 |
-| 講者切換辨識延遲 | < 2 s |
+| partial latency | < 800 ms P95 |
+| final latency | < 3 s P95 |
+| speaker-change detection latency | < 2 s |
 | DER | < 15% |
-| 繁中 WER | < 12% |
+| Traditional Chinese WER | < 12% |
 
-舊版 PRD 的「同時會議數 ≥ 10」已作廢——單機一顆 GPU 做不到，也不需要。
+The old PRD's "≥ 10 concurrent meetings" is void — one machine with one GPU cannot do
+it, and does not need to.
 
-## 施工順序
+## Build order
 
-1. ~~**eval harness**~~ 完成
-2. ~~音訊 → WS → 落地存檔~~ 完成（WS 端完成；macOS 系統音訊擷取待做）
-3. ~~Qwen3-ASR MLX（獨立 process）~~ 延遲 gate 已過，**WER 還沒**（29.4%，gate 12%）
-4. ~~前端：逐字稿 + 健康面板~~ 完成
-5. ~~即時分析層（面試／討論會議）~~ 完成，含匯出逐字稿
-6. **拿它開一場真的會議** ← 現在在這裡。中文 37.6% WER、延遲過 gate，能讀
-7. WER：`context` 餵專有名詞、`finalization_mode`（合併層的邊界重複已修掉 2pp）
-8. ~~pyannote 講者分離（獨立 process）~~ 完成，DER 還沒量
-9. ~~macOS 系統音訊擷取~~ 完成：`native/openroom-capture`，ScreenCaptureKit 抓系統輸出
-   （不靠瀏覽器分頁分享，Teams 桌面版也收得到），照 `docs/protocol.md` 直接當 WS
-   client 接後端。第一次跑要在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」授權。
+1. ~~**eval harness**~~ done
+2. ~~audio → WS → written to disk~~ done (WS side done; macOS system audio capture still to do)
+3. ~~Qwen3-ASR MLX (separate process)~~ latency gate passed, **WER has not** (29.4%, gate 12%)
+4. ~~frontend: transcript + health panel~~ done
+5. ~~live analysis layer (interview / discussion)~~ done, including transcript export
+6. **Run a real meeting on it** ← we are here. Chinese WER 37.6%, latency passes the gate, it is readable
+7. WER: feed proper nouns via `context`, `finalization_mode` (boundary duplication in the merge layer already fixed, worth 2pp)
+8. ~~pyannote speaker diarization (separate process)~~ done, DER not measured yet
+9. ~~macOS system audio capture~~ done: `native/openroom-capture`, ScreenCaptureKit grabs
+   the system output (no reliance on browser tab sharing, so the Teams desktop app is
+   captured too) and connects to the backend as a WS client straight off
+   `docs/protocol.md`. The first run needs authorization under System Settings >
+   Privacy & Security > Screen & System Audio Recording.
 
-原本排在最後的 LLM 層提前做了：逐字稿只是原料，**「一邊開會一邊給補充資料與追問建議」
-才是這個工具存在的理由**，先把它跑起來才知道逐字稿要多準。
+The LLM layer, originally scheduled last, was moved up: the transcript is only raw
+material, **"give me supporting material and follow-up questions while the meeting is
+still going" is the reason this tool exists**, and only running it tells you how
+accurate the transcript actually has to be.
 
-而磨 WER 排在真實使用**後面**，是因為 gate 是抄舊版 PRD 的，不是量出來需要的。
-32% WER 的破碎英文逐字稿，分析層照樣吐得出可用的補充資料——所以主要指標是
-insight 品質，WER 只當診斷。要標註 insight 品質就得先有東西可標，事件因此落地
-（`runs/<時間>-<meeting_id>/events.jsonl`）。
+And grinding on WER sits **after** real usage because the gate was copied from the old
+PRD, not measured as a requirement. A broken English transcript at 32% WER still lets
+the analysis layer produce usable supporting material — so the primary metric is
+insight quality, and WER is only a diagnostic. Labeling insight quality requires
+something to label, which is why events are written to disk
+(`runs/<timestamp>-<meeting_id>/events.jsonl`).
 
-## 跑起來
+## Running it
 
 ```bash
 uv venv --python 3.11 && source .venv/bin/activate
 uv pip install -e '.[eval,dev,diarize]' 'mlx-qwen3-asr>=0.3.5'
 
-export HF_TOKEN=hf_...                    # 講者分離的模型是 gated repo，見下面
-python -m openroom.server --language en     # 不給 --language 就自動判斷（中英夾雜用這個）
+export HF_TOKEN=hf_...                    # the diarization model is a gated repo, see below
+python -m openroom.server --language en     # omit --language to auto-detect (use this for mixed zh/en)
 
-cd app && npm install && npm run dev      # 前端 → http://localhost:5173
+cd app && npm install && npm run dev      # frontend → http://localhost:5173
 ```
 
-Server 會先預熱模型（第一次要編譯 Metal kernel，約 46 秒），**預熱完才送 `ready`**。
-在那之前送音訊會收到 `error`，不會被靜靜吞掉。前端在 `ready` 之前**緩衝**而不是丟棄，
-`ready` 之後照 seq 補送——擋下來的是開場白，丟掉就沒了。
+The server warms the model up first (the first run compiles Metal kernels, about 46
+seconds) and **only sends `ready` once warmup is done**. Audio sent before that gets an
+`error` back instead of being quietly swallowed. The frontend **buffers** rather than
+discards until `ready`, then resends in seq order — what gets held back is the opening
+remarks, and once dropped they are gone.
 
-每一場寫進 `runs/<時間>-<meeting_id>/`：`audio.raw`（原始 PCM）、`events.jsonl`
-（**所有**送給前端的事件，含 `_wall_ms` 與 `infer_ms`）、`transcript.txt`。
-不用 SQLite——單機、一次一場、寫完只讀一次。
+Every session writes to `runs/<timestamp>-<meeting_id>/`: `audio.raw` (raw PCM),
+`events.jsonl` (**every** event sent to the frontend, with `_wall_ms` and `infer_ms`),
+`transcript.txt`. No SQLite — one machine, one meeting at a time, written once and read
+once.
 
-前端選「系統音訊」會走瀏覽器的分享畫面對話框，**要勾「同時分享分頁音訊」**，
-沒勾就沒有音訊軌，這時會直接報錯而不是安靜地錄一片空白。
+Choosing "system audio" in the frontend goes through the browser's screen-sharing
+dialog, and you **must tick "share tab audio"**; without it there is no audio track, and
+in that case it errors out rather than quietly recording silence.
 
-### 講者分離
+### Speaker diarization
 
-pyannote 跑在自己的 process，對「目前為止的整段音訊」重跑，所以講者身分前後一致。
-模型是 **gated repo**：要先到
-<https://huggingface.co/pyannote/speaker-diarization-community-1> 按同意，再設
-`HF_TOKEN`。沒設會收到 `speaker_error`，不會安靜地少標講者。
+pyannote runs in its own process and re-runs over "the whole audio so far", so speaker
+identities stay consistent over time. The model is a **gated repo**: accept the terms at
+<https://huggingface.co/pyannote/speaker-diarization-community-1> first, then set
+`HF_TOKEN`. Without it you get `speaker_error` rather than quietly losing speaker
+labels.
 
 ```bash
-python -m openroom.server --no-diarize            # 量 ASR 延遲時要關，兩邊搶同一顆 GPU
-python -m openroom.server --diarize-idle-ratio 12 # 更保守：ASR 更穩，講者標籤更晚到
+python -m openroom.server --no-diarize            # turn off when measuring ASR latency, both sides fight over the same GPU
+python -m openroom.server --diarize-idle-ratio 12 # more conservative: steadier ASR, later speaker labels
 ```
 
-**講者標籤是回填的**，比逐字稿晚到數十秒；這是拿即時性換身分一致性，實測見
-`docs/measurements.md`。
+**Speaker labels are backfilled**, arriving tens of seconds behind the transcript; that
+is real-time traded for identity consistency. Measurements are in
+`docs/measurements.md`.
 
-### 分析層
+### Analysis layer
 
-一邊聽一邊補資料，場合決定它看什麼：`interview` 挑答案的錯與該追問的問題，
-`discussion` 補專有名詞與背景。LLM 預設走 `claude` CLI 的 print 模式（借 Claude Code 的
-登入，這台沒有 `ANTHROPIC_API_KEY`），所以每輪要花錢，觸發有節流：累積 400 字
-且距上輪 25 秒才跑，上一輪沒回來就跳過。
+It listens along and adds material; the scenario decides what it looks for. `interview`
+picks out wrong answers and the questions worth following up on; `discussion` fills in
+proper nouns and background. The LLM goes through the `claude` CLI's print mode by
+default (borrowing Claude Code's login, since this machine has no `ANTHROPIC_API_KEY`),
+so every round costs money and the trigger is throttled: it runs only once 400
+characters have accumulated and 25 seconds have passed since the last round, and skips
+if the previous round has not come back.
 
 ```bash
 python -m openroom.server --scenario interview --llm-model claude-sonnet-5
-python -m openroom.server --no-web-search   # 不讓它上網查證
+python -m openroom.server --no-web-search   # stop it from searching the web to verify
 ```
 
-分析永遠排在收音後面（`nice -n 15`，背景 task，ASR 落後超過 6 秒就整輪讓路）。
-每一次跳過都送 `insight_error`，UI 看得到原因。
+Analysis always queues behind audio capture (`nice -n 15`, background task, and the
+whole round yields if ASR falls more than 6 seconds behind). Every skip sends
+`insight_error`, so the reason is visible in the UI.
 
-**LLM provider 可以換**，用 `OPENROOM_LLM_PROVIDER` 環境變數選（預設 `claude-cli`，
-行為完全不變）：
+**The LLM provider is swappable**, selected with the `OPENROOM_LLM_PROVIDER` environment
+variable (default `claude-cli`, behavior unchanged):
 
-| provider | 說明 | 相關環境變數 |
+| provider | Description | Related env vars |
 |---|---|---|
-| `claude-cli` | 預設，`claude -p ... --output-format json` |（無）|
-| `cli` | 換一支相容的 CLI（同樣的 `-p`/`--output-format json` 合約）| `OPENROOM_LLM_CLI`（工具名，例如 `codex`、`gemini`） |
-| `anthropic-api` | 直接打 Anthropic Messages API | `ANTHROPIC_API_KEY` |
-| `ollama` | 打本地 Ollama 伺服器 | `OLLAMA_HOST`（預設 `http://localhost:11434`）、`OPENROOM_OLLAMA_MODEL`（預設 `llama3.1`） |
+| `claude-cli` | Default, `claude -p ... --output-format json` |(none)|
+| `cli` | Swap in a compatible CLI (same `-p`/`--output-format json` contract)| `OPENROOM_LLM_CLI` (tool name, e.g. `codex`, `gemini`) |
+| `anthropic-api` | Calls the Anthropic Messages API directly | `ANTHROPIC_API_KEY` |
+| `ollama` | Calls a local Ollama server | `OLLAMA_HOST` (default `http://localhost:11434`), `OPENROOM_OLLAMA_MODEL` (default `llama3.1`) |
 
 ```bash
 OPENROOM_LLM_PROVIDER=anthropic-api ANTHROPIC_API_KEY=sk-ant-... python -m openroom.server
 OPENROOM_LLM_PROVIDER=ollama OPENROOM_OLLAMA_MODEL=llama3.1 python -m openroom.server
 ```
 
-四個 provider 都一樣：失敗一律送 `insight_error`，不會悄悄吐空結果。
+All four providers behave the same way: any failure sends `insight_error`, none of them
+quietly returns an empty result.
 
 ## eval harness
 
-沒有數字就沒辦法說「重寫有沒有變好」，所以 harness 先於任何產品程式碼。
+Without numbers there is no way to say whether the rewrite made anything better, so the
+harness came before any product code.
 
 ```bash
 uv venv --python 3.11 && source .venv/bin/activate
 uv pip install -e '.[eval]'
 
-# 抓語料：YouTube 影片 → 16k mono wav + 官方字幕當 ground truth
+# fetch corpus: YouTube video → 16k mono wav + official subtitles as ground truth
 python -m eval.corpus fetch 'https://www.youtube.com/watch?v=...'
 
-# 列出已抓的語料
+# list the corpora already fetched
 python -m eval.corpus list
 
-# 依真實時間節奏把音訊灌進 WS（跟麥克風走同一條路），量 P95 延遲
+# feed audio into the WS at real-time pace (same path the microphone takes), measure P95 latency
 python -m eval.feed corpus/<slug>/audio.wav --ws ws://127.0.0.1:8000/ws/test
 
-# 算 WER（CJK 逐字、拉丁逐詞，不用指定語言；只比前 N 秒要用 reference.jsonl）
+# compute WER (per-character for CJK, per-word for Latin, no language flag needed; comparing only the first N seconds requires reference.jsonl)
 python -m eval.metrics wer corpus/<slug>/reference.jsonl hypothesis.txt --until-sec 120
 ```
 
-量 ASR 時用 `--no-analyst` 開 server，免得每跑一次就付一次 LLM 的錢。
+When measuring ASR, start the server with `--no-analyst` so you do not pay the LLM once
+per run.
 
-**手動字幕不一定是逐字稿，也可能是翻譯**（踩過：英文訪談配中文字幕，WER 算出 80%
-全是假的）。`fetch` 會比對影片語言並警告，`--langs` 可以指定字幕語言的偏好順序。
+**Manual subtitles are not necessarily a transcript — they can be a translation** (been
+there: an English interview with Chinese subtitles, the resulting 80% WER was entirely
+fake). `fetch` compares against the video's language and warns; `--langs` sets the
+preferred order of subtitle languages.
 
-語料放 `corpus/`，不進版控。
+Corpora live in `corpus/`, not under version control.
 
-### 測試素材
+### Test material
 
-- **GitLab Unfiltered**（<https://www.youtube.com/@GitLabUnfiltered/videos>）——真實多人會議、
-  單一混音音軌，正好打 diarization。有官方字幕可當 WER 的 ground truth，但**英文 WER
-  不是產品指標**。
-- **塞掐 Side Chat E417**（`6h6VsrclFTI`）——中文訪談、中英夾雜、**手動 zh-TW 字幕**
-  （真人逐字稿，比自動字幕可信）。繁中 WER 的基準就用這支。
-- **AMI Corpus**——有完整講者標註，DER 的客觀基準。等 diarization 那步才接。
+- **GitLab Unfiltered** (<https://www.youtube.com/@GitLabUnfiltered/videos>) — real
+  multi-person meetings on a single mixed track, exactly what diarization is up against.
+  Official subtitles work as WER ground truth, but **English WER is not a product
+  metric**.
+- **塞掐 Side Chat E417** (`6h6VsrclFTI`) — Chinese interview, mixed Chinese/English,
+  **manual zh-TW subtitles** (a human transcript, more trustworthy than auto-generated
+  ones). This is the baseline for Traditional Chinese WER.
+- **AMI Corpus** — full speaker annotations, the objective baseline for DER. To be wired
+  up when diarization gets there.
 
-`ffmpeg -re` 負責真實時間節奏；音訊走的路徑跟麥克風完全一樣，所以測得到延遲，
-不是離線批次跑模型的假數字。
+`ffmpeg -re` provides the real-time pacing; the audio takes exactly the same path as the
+microphone, so the latency being measured is real, not the fake numbers you get from
+running the model offline in a batch.

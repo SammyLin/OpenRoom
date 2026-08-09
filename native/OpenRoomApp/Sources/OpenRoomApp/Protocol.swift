@@ -18,15 +18,17 @@ enum Scenario: String, CaseIterable {
 
     var label: String {
         switch self {
-        case .discussion: return "討論會議"
-        case .interview: return "面試"
+        case .discussion: return L("Discussion")
+        case .interview: return L("Interview")
         }
     }
 
     var detail: String {
         switch self {
-        case .discussion: return "補上被提到的工具、名詞、數字的背景資料，標出值得查證的說法。"
-        case .interview: return "判斷受訪者的答案是否正確、哪裡含糊，並建議接下來該追問什麼。"
+        case .discussion:
+            return L("Fills in background on the tools, terms and numbers people mention, and flags claims worth checking.")
+        case .interview:
+            return L("Judges whether the candidate's answers are correct or vague, and suggests what to press on next.")
         }
     }
 
@@ -152,7 +154,9 @@ func speakerAt(_ turns: [SpeakerTurn], startMs: Int, endMs: Int) -> String? {
 /// SPEAKER_00 對人沒意義：照第一次出現順序改叫「講者 1」。
 func speakerNames(_ turns: [SpeakerTurn]) -> [String: String] {
     var m: [String: String] = [:]
-    for t in turns where m[t.speaker] == nil { m[t.speaker] = "講者 \(m.count + 1)" }
+    for t in turns where m[t.speaker] == nil {
+        m[t.speaker] = String(format: L("Speaker %lld"), m.count + 1)
+    }
     return m
 }
 

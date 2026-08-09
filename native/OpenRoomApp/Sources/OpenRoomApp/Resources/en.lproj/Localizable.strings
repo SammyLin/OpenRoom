@@ -1,0 +1,72 @@
+/* Development language. Keys are the English source text, so a missing entry in
+   another locale falls back to correct English rather than to a raw key. */
+
+/* Scenario */
+"Discussion" = "Discussion";
+"Fills in background on the tools, terms and numbers people mention, and flags claims worth checking." = "Fills in background on the tools, terms and numbers people mention, and flags claims worth checking.";
+"Interview" = "Interview";
+"Judges whether the candidate's answers are correct or vague, and suggests what to press on next." = "Judges whether the candidate's answers are correct or vague, and suggests what to press on next.";
+
+/* Speakers. %lld is the 1-based order of first appearance; SPEAKER_00 means nothing to a human. */
+"Speaker %lld" = "Speaker %lld";
+
+/* Markdown export. %1$@ timestamp, %2$@ speaker name, %3$@ text. */
+"# Meeting Transcript" = "# Meeting Transcript";
+"[%1$@] %2$@: %3$@" = "[%1$@] %2$@: %3$@";
+"[%1$@] %2$@" = "[%1$@] %2$@";
+
+/* Backend (sidecar python process) */
+"%@ not found — run `uv venv --python 3.11` in the repo first" = "%@ not found — run `uv venv --python 3.11` in the repo first";
+"Backend process exited unexpectedly (exit %lld)" = "Backend process exited unexpectedly (exit %lld)";
+"Could not launch python -m openroom.server: %@" = "Could not launch python -m openroom.server: %@";
+"Backend never opened port 8000 in 90 seconds" = "Backend never opened port 8000 in 90 seconds";
+
+/* Audio capture failures — stay specific, these are the only clue the user gets. */
+"No display found. ScreenCaptureKit audio capture has to be bound to a display or window." = "No display found. ScreenCaptureKit audio capture has to be bound to a display or window.";
+"System audio capture failed: %@. On first run you have to grant access in System Settings > Privacy & Security > Screen & System Audio Recording." = "System audio capture failed: %@. On first run you have to grant access in System Settings > Privacy & Security > Screen & System Audio Recording.";
+"System audio capture stopped: %@" = "System audio capture stopped: %@";
+"Could not build a %lld Hz mono audio converter" = "Could not build a %lld Hz mono audio converter";
+"Microphone failed to start: %@" = "Microphone failed to start: %@";
+
+/* WebSocket */
+"Connection closed: %@. Is the backend running?" = "Connection closed: %@. Is the backend running?";
+
+/* Onboarding */
+"Welcome to OpenRoom" = "Welcome to OpenRoom";
+"Grant two system permissions first, so recording doesn't die halfway through." = "Grant two system permissions first, so recording doesn't die halfway through.";
+"Screen & System Audio Recording" = "Screen & System Audio Recording";
+"Needed to capture system audio from Meet, Teams and the like. You can turn it off again in System Settings whenever you want." = "Needed to capture system audio from Meet, Teams and the like. You can turn it off again in System Settings whenever you want.";
+"Only used when you pick the Microphone source; system audio mode doesn't need it." = "Only used when you pick the Microphone source; system audio mode doesn't need it.";
+"Once both are granted you can start. Change a permission in System Settings and this page updates when you come back." = "Once both are granted you can start. Change a permission in System Settings and this page updates when you come back.";
+"Without screen recording permission, system audio mode records silence — tick OpenRoom in System Settings, and the first time you also have to restart the app." = "Without screen recording permission, system audio mode records silence — tick OpenRoom in System Settings, and the first time you also have to restart the app.";
+"Granted" = "Granted";
+"Grant" = "Grant";
+"System Settings" = "System Settings";
+"Skip for now, microphone only" = "Skip for now, microphone only";
+"Continue" = "Continue";
+
+/* Setup */
+"Start a meeting" = "Start a meeting";
+"The transcript is produced on your machine. Audio never leaves this computer." = "The transcript is produced on your machine. Audio never leaves this computer.";
+"What kind of session is this" = "What kind of session is this";
+"Where is the audio coming from" = "Where is the audio coming from";
+"System audio" = "System audio";
+"ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app." = "ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app.";
+"Microphone" = "Microphone";
+"A physical meeting room, one microphone for everyone." = "A physical meeting room, one microphone for everyone.";
+"Starting backend (the first run warms up the model, about 45 seconds)…" = "Starting backend (the first run warms up the model, about 45 seconds)…";
+"Backend ready" = "Backend ready";
+"Connecting…" = "Connecting…";
+"Start" = "Start";
+
+/* Live */
+"Recording" = "Recording";
+"Warming up" = "Warming up";
+"Stopped" = "Stopped";
+"Export" = "Export";
+"Stop" = "Stop";
+"Warming up…" = "Warming up…";
+"No transcript yet" = "No transcript yet";
+"Analysing…" = "Analysing…";
+"No background notes yet. They show up once there is enough conversation." = "No background notes yet. They show up once there is enough conversation.";
+"Pipeline health" = "Pipeline health";

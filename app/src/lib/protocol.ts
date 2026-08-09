@@ -7,18 +7,8 @@ export const CHUNK_SAMPLES = (SAMPLE_RATE * CHUNK_MS) / 1000 // 1600
 export type AudioSource = "mic" | "system"
 export type Scenario = "interview" | "discussion"
 
-export const SCENARIOS: { id: Scenario; label: string; detail: string }[] = [
-  {
-    id: "discussion",
-    label: "討論會議",
-    detail: "補上被提到的工具、名詞、數字的背景資料，標出值得查證的說法。",
-  },
-  {
-    id: "interview",
-    label: "面試",
-    detail: "判斷受訪者的答案是否正確、哪裡含糊，並建議接下來該追問什麼。",
-  },
-]
+// 標題與說明在 i18n.ts 的 scenario.* key，這裡只留協定上的識別字
+export const SCENARIOS: Scenario[] = ["discussion", "interview"]
 
 export interface InsightItem {
   kind: "fact" | "correction" | "context" | "risk"
@@ -115,10 +105,13 @@ export function speakerAt(turns: SpeakerTurn[], startMs: number, endMs: number):
   return best
 }
 
-/** SPEAKER_00 對人沒意義：照第一次出現的順序改叫「講者 1」。 */
-export function speakerNames(turns: SpeakerTurn[]): Map<string, string> {
-  const m = new Map<string, string>()
-  for (const t of turns) if (!m.has(t.speaker)) m.set(t.speaker, `講者 ${m.size + 1}`)
+/**
+ * SPEAKER_00 對人沒意義：照第一次出現的順序給 1、2、3。
+ * 只回號碼不回名字，這個模組才不用碰 i18n（protocol.check.ts 是 node 直接跑的）。
+ */
+export function speakerIndex(turns: SpeakerTurn[]): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const t of turns) if (!m.has(t.speaker)) m.set(t.speaker, m.size + 1)
   return m
 }
 

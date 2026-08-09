@@ -131,6 +131,77 @@ OPENROOM_LLM_PROVIDER=ollama OPENROOM_OLLAMA_MODEL=llama3.1 python -m openroom.s
 
 四個 provider 都一樣：失敗一律送 `insight_error`，不會悄悄吐空結果。
 
+## 自動更新
+
+`native/OpenRoomApp/build-app.sh` 包出來的 .app 用 Sparkle 2 自己檢查更新，feed 放在
+<https://sammylin.github.io/OpenRoom/appcast.xml>（`gh-pages` 分支，GitHub Pages 發的
+靜態檔）。`SUEnableAutomaticChecks` **刻意不寫進 Info.plist**：寫了等於替使用者按下同
+意，app 第一次啟動就自己連外。留白的結果是 Sparkle 第一次啟動時問過才開始檢查，之後
+每 24 小時（`SUScheduledCheckInterval` 86400）一次；選單裡的「檢查更新…」隨時可以手
+動按。
+
+更新是「從網路抓程式下來執行」，所以只有一個判準：能不能驗簽章。下載的每一包都要過
+EdDSA 簽章驗證，驗不過就拒絕安裝，沒有「先裝再說」的旗標。公鑰寫在 Info.plist 的
+`SUPublicEDKey`，而 `build-app.sh` 拿不到公鑰時**整個 key 不寫**——不塞 placeholder，
+因為一顆「看起來設定好了」的壞 build 正是這專案禁止的靜默降級。這種 build 裡的
+updater 根本不會啟動：stderr 印一行 `no SUPublicEDKey in Info.plist — auto-update
+disabled`，選單那一項灰掉並直說「無法更新——這個 build 沒有更新金鑰」，而不是按了沒
+反應。
+
+### 維護者的一次性設定
+
+```bash
+swift build -c release --package-path native/OpenRoomApp   # 先讓 SPM 把 Sparkle 的工具抓下來
+KEYS=native/OpenRoomApp/.build/artifacts/sparkle/Sparkle/bin/generate_keys
+
+$KEYS               # 產生金鑰對：私鑰進 login keychain，公鑰印出來
+$KEYS -x private.key  # 匯出私鑰，貼進 secret 之後把這個檔案刪掉
+```
+
+1. 公鑰 → `SPARKLE_PUBLIC_ED_KEY`，`build-app.sh` 從這個環境變數讀，寫進 Info.plist。
+   公鑰不是秘密。**但 release.yml 目前沒有把它傳進 build 那一步**，所以現在 tag 出來的
+   build 仍然沒有 `SUPublicEDKey`——CI log 上有那三行 WARNING，選單是灰的。在接上去之
+   前，只有本機 `export SPARKLE_PUBLIC_ED_KEY=... && native/OpenRoomApp/build-app.sh`
+   包出來的 app 更新得了。
+2. 私鑰 → repository secret `SPARKLE_PRIVATE_KEY`。release.yml 只用 stdin 餵給
+   `generate_appcast`，不走 argv（runner 上每個 process 都讀得到 argv），也不落地。沒
+   有這個 secret 就整份 appcast 不發：一份沒簽章或只剩一筆的 feed 比沒有 feed 更糟。
+3. GitHub Pages 指到 `gh-pages` 分支（Settings > Pages > Deploy from a branch）。發
+   appcast 是 workflow 的最後一步，順序是刻意的——feed 指向 GitHub Release 的下載網
+   址，資產還不存在就不能先公告。
+4. Apple 的簽章 secret：`APPLE_CERTIFICATE`（Developer ID Application 憑證的 .p12 轉
+   base64）、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_ID`、`APPLE_PASSWORD`（app-specific
+   password）、`APPLE_TEAM_ID`。
+
+### 沒有 Developer ID，自動更新等於沒有
+
+這件事要講白。憑證與公證的 secret 沒設，release.yml 照樣出得了一顆 app，但那是 adhoc
+簽章：**除了 build 它的那台機器，Gatekeeper 在每一台 Mac 上都會擋下來**。使用者得自己
+`xattr -dr com.apple.quarantine /Applications/OpenRoom.app`，或自己從原始碼 build。連
+裝都裝不起來的 app，自動更新沒有意義——Sparkle 抓下新版、驗完簽章、換掉 app，然後
+Gatekeeper 一樣擋。所以在 Apple Developer Program 的憑證與公證到位之前，這條路是接好
+的但走不通。CI 不會假裝沒事：沒有憑證、沒有公證，各出一則 warning，release notes 裡也
+會有一段講明這顆是什麼狀態、要怎麼硬開。
+
+### 發版
+
+推 tag 就出貨，tag 的形狀決定一切：
+
+```bash
+git tag v0.2.0        && git push origin v0.2.0          # 正式版，所有安裝都會收到
+git tag v0.2.0-beta.1 && git push origin v0.2.0-beta.1   # 帶 '-' 就是 prerelease，只進 beta channel
+```
+
+帶 `-` 的算 prerelease：GitHub Release 標成 prerelease，appcast 那一筆加
+`--channel beta`；乾淨的 tag 不帶 channel，也就是每一顆安裝預設訂閱的那一條。這個判斷
+在 workflow 開頭算一次，之後不再重算。目前 app 沒有設 `allowedChannels`，所以沒有任何
+一顆 build 訂閱得到 beta——beta 版只出現在 GitHub Releases 頁面，要手動下載。
+
+發版途中每一步都自己驗自己，出錯就當場非零退出：Info.plist 的版本要跟 tag 一致（Sparkle
+比的就是這個字串）、這次的檔案必須出現在 appcast 裡而且帶 `sparkle:edSignature`、新的
+feed 筆數不准比舊的少（少了就是有人的升級路徑被砍掉）。抓不到既有的 `gh-pages` 也是
+硬錯誤——與其把整份歷史換成只有一筆的 feed，不如不發。
+
 ## eval harness
 
 沒有數字就沒辦法說「重寫有沒有變好」，所以 harness 先於任何產品程式碼。

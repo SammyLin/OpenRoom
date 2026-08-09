@@ -1,22 +1,24 @@
 name: Release
 
-# 打 tag 就出貨。每一步都自己驗自己：簽章、公證、bundle 內容，任何一項只要
-# 「看起來成功但其實沒做」就必須當場非 0 退出。這個 repo 存在的理由就是上一版
-# 到處都在默默失敗。
+# Push a tag, ship a build. Every step verifies itself: signature, notarization, bundle
+# contents, update feed. Anything that "looks like it worked but didn't" must exit
+# non-zero on the spot. This repo exists because the previous version failed silently
+# everywhere.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: '要出貨的 tag，例如 v0.2.0 或 v0.2.0-beta.1'
+        description: 'Tag to ship, e.g. v0.2.0 or v0.2.0-beta.1'
         required: true
 
 permissions:
   contents: write
 
 concurrency:
-  # 兩個 release 同時跑會互相蓋掉 GitHub Release 的附件，排隊而不是取消。
+  # Two releases running at once clobber each other's GitHub Release assets and race on
+  # the gh-pages feed. Queue instead of cancelling.
   group: release
   cancel-in-progress: false
 
@@ -27,16 +29,19 @@ jobs:
       - name: Derive version and channel from the tag
         id: meta
         env:
-          # 經過 env 而不是直接內插進 shell：workflow_dispatch 的 tag 是使用者輸入。
+          # Through env, not interpolated straight into the shell: the workflow_dispatch
+          # tag is user input.
           TAG_INPUT: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           TAG="${TAG_INPUT:-$GITHUB_REF_NAME}"
           case "$TAG" in
             v[0-9]*) ;;
-            *) echo "::error::tag 必須是 v<版本>，拿到的是 '$TAG'"; exit 1 ;;
+            *) echo "::error::tag must be v<version>, got '$TAG'"; exit 1 ;;
           esac
-          # 帶 '-' 的（v0.2.0-beta.1）算 prerelease，乾淨的 tag 才是穩定版。
+          # A tag with a '-' in it (v0.2.0-beta.1) is a prerelease; a clean tag is stable.
+          # This single decision drives both the GitHub Release flag and the Sparkle
+          # channel further down — it is computed once, here, and never recomputed.
           case "$TAG" in
             *-*) PRERELEASE=true ;;
             *)   PRERELEASE=false ;;
@@ -67,13 +72,37 @@ jobs:
             echo "sign=true" >> "$GITHUB_OUTPUT"
           else
             echo "sign=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::沒有 APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD，這次出的是 adhoc 簽章的 build。除了編它的那台機器以外，任何 Mac 打開都會被 Gatekeeper 擋掉。"
+            echo "::warning::No APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD — this build is adhoc-signed. Gatekeeper will block it on every Mac except the one that built it."
           fi
           if [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
             echo "notarize=true" >> "$GITHUB_OUTPUT"
           else
             echo "notarize=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::沒有 APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID，跳過公證。沒公證過的 app 就算有 Developer ID 簽章，第一次打開一樣會被 Gatekeeper 擋。"
+            echo "::warning::No APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID — skipping notarization. An un-notarized app is blocked by Gatekeeper on first open even with a Developer ID signature."
+          fi
+
+      - name: Check for the Sparkle signing key
+        id: sparkle
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+        run: |
+          set -euo pipefail
+          # 兩把鑰匙是一對的，必須同進同出。只有私鑰的話，我們會簽出一份 appcast，
+          # 而出貨的 app 因為沒有 SUPublicEDKey 根本關掉了更新——發一份沒人裝得起來
+          # 的更新，比不發還糟，而且不會有任何人回報，因為它「成功」了。
+          if [ -n "$SPARKLE_PRIVATE_KEY" ] && [ -z "$SPARKLE_PUBLIC_ED_KEY" ]; then
+            echo "::error::有 SPARKLE_PRIVATE_KEY 卻沒有 SPARKLE_PUBLIC_ED_KEY。這會做出一顆更新功能被停用的 app，同時發布一份指向它的 appcast。兩個 secret 都補上，或兩個都拿掉。"
+            exit 1
+          fi
+          if [ -n "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "appcast=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "appcast=false" >> "$GITHUB_OUTPUT"
+            if [ -n "$SPARKLE_PUBLIC_ED_KEY" ]; then
+              echo "::warning::有 SPARKLE_PUBLIC_ED_KEY 但沒有 SPARKLE_PRIVATE_KEY。這顆 app 會去抓 feed，但這次不會發布任何 appcast 項目。"
+            fi
+            echo "::warning::No SPARKLE_PRIVATE_KEY — skipping the appcast entirely. This release will NOT be offered to existing installs; they stay on whatever version they have until someone downloads this one by hand. An unsigned or partial feed is worse than no feed, so nothing is published."
           fi
 
       - name: Import Developer ID certificate
@@ -88,15 +117,16 @@ jobs:
         if: steps.secrets.outputs.sign == 'true'
         run: |
           set -euo pipefail
-          # 匯入動作自己不會檢查匯進來的是不是 Developer ID。這裡直接問 keychain，
-          # 找不到就停——寧可沒有 release，也不要一顆偽裝成簽好的 app。
-          # `|| true`：grep 沒找到會回 1，配上 pipefail 會讓 shell 在印出下面那句
-          # 人看得懂的錯誤之前就死掉。
+          # The import action does not check what it imported. Ask the keychain directly
+          # and stop if it is not a Developer ID — better no release than an app that
+          # only looks signed.
+          # `|| true`: grep exits 1 when it finds nothing, and with pipefail that kills
+          # the shell before it can print the human-readable error below.
           id="$(security find-identity -v -p codesigning \
                 | grep 'Developer ID Application' \
                 | head -1 | awk '{print $2}' || true)"
           if [ -z "$id" ]; then
-            echo "::error::匯入了憑證，keychain 裡卻找不到 Developer ID Application 身分。APPLE_CERTIFICATE 裝的可能是 Apple Development 憑證。"
+            echo "::error::A certificate was imported but no Developer ID Application identity is in the keychain. APPLE_CERTIFICATE probably holds an Apple Development certificate."
             security find-identity -v -p codesigning || true
             exit 1
           fi
@@ -105,58 +135,203 @@ jobs:
 
       - name: Build and sign OpenRoom.app
         env:
-          # 空字串會走 build-app.sh 的 `${SIGN_IDENTITY:--}` 預設，也就是 adhoc。
+          # An empty string falls through to build-app.sh's `${SIGN_IDENTITY:--}`, i.e. adhoc.
           SIGN_IDENTITY: ${{ steps.identity.outputs.id }}
           VERSION: ${{ steps.meta.outputs.version }}
+          # 這把公鑰會被烤進 Info.plist 的 SUPublicEDKey，Sparkle 靠它驗下載回來的更新。
+          # 空的話 build-app.sh 會整個不寫這個 key，並且大聲說這顆 app 不能自動更新。
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
         run: |
           set -euo pipefail
-          # 打包邏輯留在 build-app.sh：本機跑的跟 CI 跑的必須是同一份，複製到
-          # YAML 裡就等著兩邊慢慢漂走。
+          # Packaging lives in build-app.sh: local builds and CI builds must be the same
+          # script. Copy it into YAML and the two drift apart.
           native/OpenRoomApp/build-app.sh
           APP=native/OpenRoomApp/OpenRoom.app
-          test -x "$APP/Contents/MacOS/OpenRoom" || { echo "::error::bundle 裡沒有執行檔"; exit 1; }
-          # Info.plist 的版本是 CI 唯一注進去的東西，出錯會做出一顆版本號說謊的 app。
+          test -x "$APP/Contents/MacOS/OpenRoom" || { echo "::error::no executable in the bundle"; exit 1; }
+          # The version in Info.plist is the one thing CI injects; getting it wrong ships
+          # an app that lies about its own version — and Sparkle compares exactly this.
           got="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-          [ "$got" = "$VERSION" ] || { echo "::error::Info.plist 版本是 $got，tag 是 $VERSION"; exit 1; }
+          [ "$got" = "$VERSION" ] || { echo "::error::Info.plist says $got, the tag says $VERSION"; exit 1; }
+          # 要發 appcast 就代表這顆 app 必須驗得動更新。secret 那關已經擋過一次，這裡
+          # 讀回實際產出的 plist——secret 裡多一個換行、build-app.sh 的分支寫錯，
+          # 都會做出一顆更新被停用的 app，而 CI 一路綠燈到把 feed 發出去。
+          if [ "${{ steps.sparkle.outputs.appcast }}" = "true" ]; then
+            /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP/Contents/Info.plist" >/dev/null 2>&1 \
+              || { echo "::error::要發布 appcast，但 Info.plist 沒有 SUPublicEDKey。這顆 app 收不了自己的更新。"; exit 1; }
+          fi
 
-      - name: Notarize and staple
+      # DMG 先做、再公證：公證票是 staple 到「使用者下載的那個檔案」上的。先公證 app
+      # 再包 DMG 的話，票貼在 app 上，而使用者雙擊的是 DMG——Gatekeeper 第一關檢查的
+      # 是沒有票的那一層，離線時就會被擋。
+      - name: Package the DMG
+        id: archive
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          SIGN_IDENTITY: ${{ steps.identity.outputs.id }}
+        run: |
+          set -euo pipefail
+          name="OpenRoom-${VERSION}.dmg"
+          staging="$(mktemp -d)"
+          # ditto 而不是 cp -R：.app 裡的 symlink 與 extended attribute（包含之後要
+          # staple 上去的票）只有 ditto 會原樣搬。
+          ditto native/OpenRoomApp/OpenRoom.app "$staging/OpenRoom.app"
+          # 拖進 /Applications 的那個捷徑。沒有它使用者會直接在 DMG 裡跑 app，
+          # 而唯讀掛載點上的 app 是沒辦法自我更新的。
+          ln -s /Applications "$staging/Applications"
+          hdiutil create -volname OpenRoom -srcfolder "$staging" -ov -format UDZO "$name"
+          test -s "$name" || { echo "::error::$name is empty"; exit 1; }
+
+          # DMG 自己也要簽，否則 Gatekeeper 會擋在「打不開」而不是「未驗證的開發者」。
+          if [ -n "${SIGN_IDENTITY:-}" ]; then
+            codesign --force --sign "$SIGN_IDENTITY" --timestamp "$name"
+            codesign --verify --strict --verbose=2 "$name"
+          fi
+
+          # hdiutil 對著空的 srcfolder 也會做出一顆合法的 DMG。掛起來確認 app 真的在裡面，
+          # 不然我們會發一顆下載得下來、掛得起來、裡面什麼都沒有的映像檔。
+          mnt="$(mktemp -d)"
+          hdiutil attach "$name" -nobrowse -readonly -mountpoint "$mnt"
+          trap 'hdiutil detach "$mnt" -quiet || true' EXIT
+          test -x "$mnt/OpenRoom.app/Contents/MacOS/OpenRoom" \
+            || { echo "::error::DMG 裡沒有可執行的 OpenRoom.app"; exit 1; }
+          test -e "$mnt/Applications" || { echo "::error::DMG 裡沒有 /Applications 捷徑"; exit 1; }
+          hdiutil detach "$mnt" -quiet
+          trap - EXIT
+
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "$name"
+
+      - name: Notarize and staple the DMG
         if: steps.secrets.outputs.sign == 'true' && steps.secrets.outputs.notarize == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DMG: ${{ steps.archive.outputs.name }}
         run: |
           set -euo pipefail
-          APP=native/OpenRoomApp/OpenRoom.app
-          ditto -c -k --keepParent "$APP" notarize.zip
-          # --wait 在某些 Xcode 版本上，被拒絕也照樣回 0。所以自己讀 status。
-          xcrun notarytool submit notarize.zip \
+          # On some Xcode versions --wait exits 0 even when the submission was rejected.
+          # So read the status ourselves.
+          xcrun notarytool submit "$DMG" \
             --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
             --wait --output-format json > notary.json
           status="$(python3 -c 'import json;print(json.load(open("notary.json"))["status"])')"
           if [ "$status" != "Accepted" ]; then
-            echo "::error::公證回 $status"
+            echo "::error::notarization returned $status"
             xcrun notarytool log "$(python3 -c 'import json;print(json.load(open("notary.json"))["id"])')" \
               --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" || true
             exit 1
           fi
-          xcrun stapler staple "$APP"
-          # 最終驗收：Gatekeeper 自己說了算，我們說了不算。
-          spctl --assess --type execute -vv "$APP"
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          # Final acceptance test: Gatekeeper decides, we don't. DMG 走 -t open，
+          # 而且要指定 primary-signature，否則 spctl 會拿隔離屬性當判準而誤判。
+          spctl --assess --type open --context context:primary-signature -vv "$DMG"
 
-      - name: Archive
-        id: archive
+      - name: Carry the published appcast forward
+        id: feed
+        if: steps.sparkle.outputs.appcast == 'true'
         env:
-          VERSION: ${{ steps.meta.outputs.version }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # ditto 而不是 zip：.app 的 symlink 與擴充屬性（包含 staple 上去的票）
-          # 只有 ditto 會原樣帶過去。
-          name="OpenRoom-${VERSION}.zip"
-          ditto -c -k --keepParent native/OpenRoomApp/OpenRoom.app "$name"
-          test -s "$name" || { echo "::error::$name 是空的"; exit 1; }
-          echo "name=$name" >> "$GITHUB_OUTPUT"
-          shasum -a 256 "$name"
+          mkdir -p appcast-work
+          # Read-only anonymous clone: the checkout above ran with persist-credentials
+          # false, and the feed is public anyway.
+          url="https://github.com/$REPO.git"
+          # --exit-code makes the three cases distinguishable: 0 the branch is there,
+          # 2 there is no such branch (first release), anything else means we could not
+          # ask. Treating "could not ask" as "first release" would let one network blip
+          # replace the whole feed history with a single item.
+          rc=0
+          git ls-remote --exit-code --heads "$url" gh-pages >/dev/null 2>&1 || rc=$?
+          case "$rc" in
+            0)
+              git clone --depth 1 --branch gh-pages --single-branch "$url" gh-pages-src \
+                || { echo "::error::gh-pages exists but could not be cloned. Refusing to generate a feed that would drop every already-published item."; exit 1; }
+              if [ -f gh-pages-src/appcast.xml ]; then
+                cp gh-pages-src/appcast.xml appcast-work/appcast.xml
+              else
+                echo "::warning::gh-pages exists but holds no appcast.xml. Starting a fresh feed."
+              fi
+              ;;
+            2)
+              echo "no gh-pages branch yet — first release, starting a fresh feed"
+              ;;
+            *)
+              echo "::error::could not read gh-pages from $url (git ls-remote exit $rc). Aborting instead of publishing a one-item feed over the real one."
+              exit 1
+              ;;
+          esac
+          before=0
+          if [ -f appcast-work/appcast.xml ]; then
+            before="$(grep -c '<item>' appcast-work/appcast.xml || true)"
+          fi
+          echo "items_before=$before" >> "$GITHUB_OUTPUT"
+          echo "carried $before existing item(s) forward"
+
+      - name: Generate and verify the appcast
+        id: appcast
+        if: steps.sparkle.outputs.appcast == 'true'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          ARCHIVE: ${{ steps.archive.outputs.name }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          REPO: ${{ github.repository }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+          BEFORE: ${{ steps.feed.outputs.items_before }}
+        run: |
+          set -euo pipefail
+          # Sparkle ships generate_appcast inside its SwiftPM binary artifact, which the
+          # release build already fetched. Do not download a second copy — the tool that
+          # signs the feed has to match the framework inside the bundle.
+          gen="$(find native/OpenRoomApp/.build/artifacts -type f -name generate_appcast -perm -u+x | head -1)"
+          if [ -z "$gen" ]; then
+            echo "::error::generate_appcast is not under native/OpenRoomApp/.build/artifacts. Sparkle is not a dependency of the app, so nothing here can sign the feed."
+            exit 1
+          fi
+          cp "$ARCHIVE" appcast-work/
+          # Prerelease tags go to the beta channel; plain tags carry no channel, which is
+          # what every install subscribes to. Same flag the GitHub Release uses.
+          if [ "$PRERELEASE" = "true" ]; then set -- --channel beta; else set --; fi
+          # --maximum-versions 0 keeps every item: the default (5) quietly prunes older
+          # entries, which is exactly the silent drop the count assertion below catches.
+          # --ed-key-file - reads the private key from stdin. Never argv: argv is readable
+          # by every process on the runner. The key is never written to disk here either.
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | "$gen" \
+            --ed-key-file - \
+            --maximum-versions 0 \
+            --download-url-prefix "https://github.com/$REPO/releases/download/$TAG/" \
+            "$@" \
+            appcast-work
+
+          feed=appcast-work/appcast.xml
+          test -s "$feed" || { echo "::error::generate_appcast wrote no appcast.xml"; exit 1; }
+          # This release's enclosure must be in the feed AND carry an EdDSA signature on
+          # the same element. generate_appcast omits the signature silently when
+          # SUPublicEDKey in Info.plist does not match the signing key, and an unsigned
+          # item is an update every client will refuse — publishing it is a dead feed.
+          enclosure="$(grep -F "$ARCHIVE" "$feed" || true)"
+          case "$enclosure" in
+            *sparkle:edSignature=*) echo "signed enclosure present for $ARCHIVE" ;;
+            "")
+              echo "::error::$ARCHIVE does not appear in the generated appcast at all. Refusing to publish."
+              exit 1 ;;
+            *)
+              echo "::error::the enclosure for $ARCHIVE has no sparkle:edSignature. Either SUPublicEDKey in Info.plist does not match SPARKLE_PRIVATE_KEY, or the key is malformed. Refusing to publish an unsigned item."
+              echo "$enclosure"
+              exit 1 ;;
+          esac
+          after="$(grep -c '<item>' "$feed" || true)"
+          if [ "$after" -lt "$BEFORE" ]; then
+            echo "::error::the feed shrank: $BEFORE item(s) in, $after out. A published update was dropped, which takes the upgrade path away from older installs or from the other channel. Refusing to publish."
+            exit 1
+          fi
+          echo "appcast: $BEFORE item(s) in, $after out"
+          # Publish only the feed. The archive lives on the GitHub Release; gh-pages must
+          # not accumulate app zips.
+          mkdir -p appcast-publish
+          cp "$feed" appcast-publish/appcast.xml
 
       - name: Compose release notes
         env:
@@ -170,12 +345,16 @@ jobs:
           {
             echo "### Install"
             echo
-            echo "解壓 \`OpenRoom.app\`，拖進 /Applications。"
+            echo "Open the .dmg and drag \`OpenRoom.app\` into Applications. Run it from"
+            echo "/Applications, not from the mounted image — the disk image is read-only,"
+            echo "so an app launched from there cannot install its own updates."
             echo
-            echo "這顆 .app 是前端外殼——ASR 與講者分離還是跑在 repo 裡的 Python。"
-            echo "第一次用之前要先 clone 這個 repo 並建好 venv（\`uv venv --python 3.11\`），"
-            echo "repo 不在 \`~/workspaces/slab/openroom\` 的話用 \`OPENROOM_REPO_PATH\` 指過去。"
-            echo "步驟看 README。"
+            echo "**This .app is a front end and is not standalone.** ASR and diarization run"
+            echo "in the Python backend in this repo, which the app launches. Before first use,"
+            echo "clone the repo and create the venv (\`uv venv --python 3.11\`); if the repo is"
+            echo "not at \`~/workspaces/slab/openroom\`, point \`OPENROOM_REPO_PATH\` at it."
+            echo "Downloading only this .dmg gets you an app that starts and then cannot"
+            echo "transcribe anything. Full steps are in the README."
             echo
             echo "### README"
             echo
@@ -185,16 +364,16 @@ jobs:
             echo "- [日本語]($base/README.ja.md)"
             echo
             if [ "$SIGNED" != "true" ]; then
-              echo "### 警告：這個 build 沒有簽章"
+              echo "### Warning: this build is not signed"
               echo
-              echo "adhoc 簽章，沒有 Developer ID、沒有公證。除了編出它的那台機器以外，"
-              echo "任何 Mac 打開都會被 Gatekeeper 擋掉。要自己承擔風險放行的話："
-              echo '`xattr -dr com.apple.quarantine /Applications/OpenRoom.app`。'
-              echo "或者直接從原始碼建：\`native/OpenRoomApp/build-app.sh\`。"
+              echo "Adhoc signature, no Developer ID, no notarization. Gatekeeper will block it"
+              echo "on every Mac except the one that built it. To allow it anyway, at your own risk:"
+              echo '`xattr -dr com.apple.quarantine /Applications/OpenRoom.app`.'
+              echo "Or build it yourself from source: \`native/OpenRoomApp/build-app.sh\`."
             elif [ "$NOTARIZED" != "true" ]; then
-              echo "### 警告：有 Developer ID 簽章，但沒有公證"
+              echo "### Warning: signed with a Developer ID, but not notarized"
               echo
-              echo "第一次打開一樣會被 Gatekeeper 擋。要放行請右鍵 → 打開。"
+              echo "Gatekeeper still blocks the first open. To allow it: right-click → Open."
             fi
           } > notes.md
           cat notes.md
@@ -207,3 +386,14 @@ jobs:
           body_path: notes.md
           files: ${{ steps.archive.outputs.name }}
           fail_on_unmatched_files: true
+
+      # Last, on purpose: the appcast points at the GitHub Release download URLs, so the
+      # feed must not go live before the assets it advertises exist.
+      - name: Publish the appcast to gh-pages
+        if: steps.sparkle.outputs.appcast == 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./appcast-publish
+          keep_files: true
+          commit_message: 'appcast: OpenRoom ${{ steps.meta.outputs.version }}'

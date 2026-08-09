@@ -132,6 +132,67 @@ OPENROOM_LLM_PROVIDER=ollama OPENROOM_OLLAMA_MODEL=llama3.1 python -m openroom.s
 
 四个 provider 的行为一致：任何失败都发 `insight_error`，没有一个会悄悄返回空结果。
 
+## 发布与自动更新
+
+`OpenRoom.app` 由 `native/OpenRoomApp/build-app.sh` 组出来（一支 shell 脚本，不是 Xcode
+工程），里面带 Sparkle 2。
+
+### 更新怎么来
+
+程序自己去查更新，feed 是 gh-pages 分支上的一个静态文件：
+<https://sammylin.github.io/OpenRoom/appcast.xml>。Info.plist 里**刻意不写**
+`SUEnableAutomaticChecks`——写了 Sparkle 就会跳过第一次启动的询问，等于这个程序没问过就
+自己连外。所以首次启动会问一次要不要检查更新，你答应了才开始；之后每
+`SUScheduledCheckInterval` 86400 秒（24 小时）查一次，菜单里的"检查更新…"随时能手动查。
+
+下载回来的东西要过 EdDSA 签名验证：Sparkle 拿 Info.plist 里的 `SUPublicEDKey` 去核对
+appcast 那一条的 `sparkle:edSignature`，对不上就拒绝安装。`build-app.sh` 只在
+`SPARKLE_PUBLIC_ED_KEY` 有值时才写 `SUPublicEDKey`，没有就整个不写、并在 stderr 上喊；
+程序发现自己没有公钥就根本不启动 updater，菜单里那一项灰掉、写着无法更新。一个按了没反应
+的"检查更新"就是静默降级。
+
+### 维护者的一次性设置
+
+1. 生成密钥对：用 Sparkle 自带的 `generate_keys`（`swift build` 之后在
+   `native/OpenRoomApp/.build/artifacts` 底下，和 `generate_appcast` 同一份）。私钥进登录
+   钥匙串、公钥印在 stdout；`generate_keys -x` 把私钥导出成文件，好贴给 CI。
+2. 私钥存成 repository secret `SPARKLE_PRIVATE_KEY`。没有它，release workflow 会跳过整个
+   appcast 并留一条 warning：这一版不会推给任何已安装的程序，它们停在原来的版本，直到有人
+   手动下载。半张或没签名的 feed 比没有 feed 更糟，所以宁可什么都不发。
+3. 公钥交给 `build-app.sh` 读的 `SPARKLE_PUBLIC_ED_KEY` 环境变量——本机 `export`，CI 里给
+   打包那一步。这里没有默认值：填一个像模像样的 placeholder 会让坏掉的 build 看起来是配好
+   的。
+4. GitHub Pages 打开，来源选 `gh-pages` 分支，appcast 就发在那里。workflow 用
+   `peaceiris/actions-gh-pages` 推上去，`keep_files: true`，上面只放 `appcast.xml`，zip
+   留在 GitHub Release 上。
+5. Apple 签名的 secret：`APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`（Developer ID
+   Application 证书的 .p12，base64），以及公证要的 `APPLE_ID`、`APPLE_PASSWORD`、
+   `APPLE_TEAM_ID`。
+
+### 没有证书，自动更新就是废的
+
+说白了：缺 Developer ID 证书和公证，CI 出来的就是 adhoc 签名的 build，**除了打包那台机器，
+Gatekeeper 在每一台 Mac 上都会把它挡下来**。用户得自己
+`xattr -dr com.apple.quarantine /Applications/OpenRoom.app` 才打得开，而自动更新装上去的
+新版本照样会被挡——所以在实际使用上，这种情况下的自动更新等于没有。签名和公证不是"以后再
+补的润色"，是自动更新能不能用的前提。少了哪一样，release workflow 都会印 warning 并照发，
+不会假装一切正常。
+
+### 发版
+
+推 tag 就发版，workflow 从 tag 的形状决定一切：
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0                 # 正式版，推给所有人
+git tag v0.2.0-beta.1 && git push origin v0.2.0-beta.1   # 带 '-' 的是预发布，只进 beta 频道
+```
+
+带 `-` 的 tag 同时是 GitHub prerelease，appcast 那一条也带 `--channel beta`，只有订了 beta
+频道的安装收得到；干净的 tag 不带频道，那才是所有安装默认订的那一条。appcast 是**接着旧的
+往上加**：workflow 先把 gh-pages 上已经发布的 feed 拉下来，`--maximum-versions 0` 不裁旧
+条目，发布前数一遍条数，比拉下来的少就中止——掉一条就等于把某些旧版本的升级路径拿掉了。
+feed 排在最后才发布，因为它指向的是 GitHub Release 的下载地址，不能比那些文件先上线。
+
 ## eval harness
 
 没有数字就没法说重写到底改好了什么，所以评测框架比任何产品代码都先写。

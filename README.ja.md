@@ -143,6 +143,75 @@ OPENROOM_LLM_PROVIDER=ollama OPENROOM_OLLAMA_MODEL=llama3.1 python -m openroom.s
 4 つのプロバイダはいずれも同じ振る舞いをする。どんな失敗でも `insight_error` を送り、黙って
 空の結果を返すものは 1 つもない。
 
+## 自動アップデート
+
+配布物は `native/OpenRoomApp/build-app.sh` が組む `OpenRoom.app`(Xcode project ではなく
+shell script 1 本)であり、これはフロントエンドでしかない。ASR と話者分離は今までどおり
+このリポジトリの Python バックエンドが動かす。その `.app` は**自分でアップデートを確認する**。
+Sparkle 2 を使う。macOS には App Store の外で更新を配る仕組みが無く、自前で書けば結局
+署名検証を自前で書くことになるからだ。
+
+- フィードは <https://sammylin.github.io/OpenRoom/appcast.xml>(`gh-pages` ブランチを
+  GitHub Pages が配信する)。`Info.plist` の `SUFeedURL` がここを指す。
+- **初回起動で黙って外に出ることはない。** `SUEnableAutomaticChecks` は意図的に書いていない。
+  書けば Sparkle は初回の確認をスキップし、一度も聞かずに外へ問い合わせを始める。同意を
+  Info.plist が代わりに押すのではなく、初回起動時に本人へ聞かせる。有効にした後の確認間隔は
+  `SUScheduledCheckInterval` の 86400 秒(24 時間)。メニューの「アップデートを確認…」は
+  いつでも手動で叩ける。
+- **検証できない更新は入らない。** ダウンロードは EdDSA 署名で検証し、検証に失敗したものは
+  適用を拒否する。公開鍵(`Info.plist` の `SUPublicEDKey`)を持たないビルドでは updater を
+  そもそも起動しない。メニュー項目は「アップデート不可 — このビルドには更新キーがありません」
+  と表示して無効になる。押しても何も起きない「アップデートを確認」は無言の劣化だからだ。
+  `SPARKLE_PUBLIC_ED_KEY` が未設定のとき build-app.sh は placeholder を書いたりせず、
+  警告を出したうえで `SUPublicEDKey` の行ごと省く。
+
+### メンテナ側の一度きりの設定
+
+1. Sparkle の `generate_keys` で EdDSA の鍵ペアを作る。秘密鍵はキーチェーンに入り、
+   `generate_keys -x` で書き出せる。公開鍵は標準出力に出る。
+2. 書き出した秘密鍵を repository secret `SPARKLE_PRIVATE_KEY` に入れる。release.yml は
+   これを stdin 経由で `generate_appcast` に渡す(argv に置かない。argv は runner 上の
+   どのプロセスからも読める)。この secret が無いときは appcast を一切書かない。既存の
+   インストールにそのリリースは出てこない。中途半端なフィードを出すより何も出さない方が
+   マシだからだ。
+3. 公開鍵は build-app.sh が読む環境変数 `SPARKLE_PUBLIC_ED_KEY` に入れる。ローカルなら
+   `export`、CI なら release.yml のビルドステップの `env` に渡す。ここが空のままだと
+   `SUPublicEDKey` の無い `.app` が出荷され、そのビルドは永久にアップデートできない。
+4. `gh-pages` ブランチで GitHub Pages を有効にする(Settings > Pages、source をそのブランチに)。
+   ブランチ自体は最初のリリースが作る。Pages が有効になっていなければフィードの URL は 404 を
+   返し、インストール済みの `.app` は毎回アップデート確認に失敗する。
+5. Apple の署名用 secret を入れる。`APPLE_CERTIFICATE`(Developer ID Application 証明書の
+   `.p12` を base64 したもの)、`APPLE_CERTIFICATE_PASSWORD`、そして公証用に `APPLE_ID`、
+   `APPLE_PASSWORD`、`APPLE_TEAM_ID`。
+
+**Developer ID 証明書と公証が無ければ、この自動アップデートは実用上まったく意味がない。**
+`APPLE_CERTIFICATE` が無いとき release.yml は警告を出したうえで adhoc 署名のまま出荷し、
+そのビルドは**ビルドしたマシン以外のすべての Mac で Gatekeeper に止められる**。証明書が
+あっても公証が無ければ初回起動が止められる。そして Sparkle が新しい版を落としてきても、
+止められる `.app` はやはり止められる。つまり証明書と公証が揃うまで、配布版のアップデート
+経路は成立しない。これは設定漏れの類ではなく、有料の Apple Developer Program が要るという
+話であり、この 2 つが揃うまでのリリースは「手で落として `xattr -dr com.apple.quarantine` を
+叩ける人だけが使えるもの」だと考えてよい。
+
+### リリースの出し方
+
+タグを push するだけでよい。バージョンもチャンネルもタグの形から決まる。
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0                 # 全員に配る
+git tag v0.2.0-beta.1 && git push origin v0.2.0-beta.1   # beta チャンネルだけに配る
+```
+
+`-` を含むタグは prerelease として扱われ、その 1 つの判定が GitHub Release の prerelease
+フラグと `generate_appcast --channel beta` の両方を決める。beta チャンネルを購読していない
+インストールに `v0.2.0-beta.1` は出てこない。
+
+appcast は公開済みのフィードを持ち越したうえで書き直し、`--maximum-versions 0` で古い項目を
+黙って間引かせない。今回の項目に EdDSA 署名が付いていない場合、あるいは項目数が減った場合、
+workflow はフィードを発行せずにその場で失敗する。フィードの発行は GitHub Release への
+アップロードの**後**に行う。フィードが指す先のファイルは、フィードが公開される時点で
+存在していなければならない。
+
 ## eval ハーネス
 
 数字がなければ書き直しで何かが良くなったのかを言えない。だからハーネスはプロダクトコードより

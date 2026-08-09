@@ -70,3 +70,8 @@
 "Analysing…" = "Analysing…";
 "No background notes yet. They show up once there is enough conversation." = "No background notes yet. They show up once there is enough conversation.";
 "Pipeline health" = "Pipeline health";
+
+/* Updates (Sparkle). The second string is what the menu says when the build has no
+   SUPublicEDKey: it cannot verify a download, so it must not offer to fetch one. */
+"Check for Updates…" = "Check for Updates…";
+"Updates unavailable — this build has no update key" = "Updates unavailable — this build has no update key";

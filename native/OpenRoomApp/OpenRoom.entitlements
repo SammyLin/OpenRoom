@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened Runtime 會擋掉麥克風，除非這個 entitlement 明著要。非沙盒 app 也一樣——
+  NSMicrophoneUsageDescription 只負責讓系統跳出詢問框，不負責讓 runtime 放行。
+
+  只在 Developer ID 簽章時才會用到（見 build-app.sh），所以本機 adhoc build 永遠
+  測不出少了它的後果：使用者按了「允許」，AVAudioEngine 還是收到一片靜音。
+
+  螢幕與系統音訊擷取（ScreenCaptureKit）不在這裡——那條路走 TCC 授權，沒有對應的
+  entitlement 可以給。
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.device.audio-input</key><true/>
+</dict>
+</plist>

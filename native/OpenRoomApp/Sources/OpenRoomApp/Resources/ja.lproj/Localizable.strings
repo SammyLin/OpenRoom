@@ -70,3 +70,7 @@
 "Analysing…" = "分析中…";
 "No background notes yet. They show up once there is enough conversation." = "背景情報はまだありません。会話がある程度たまると自動で出てきます。";
 "Pipeline health" = "パイプラインの状態";
+
+/* Updates (Sparkle) */
+"Check for Updates…" = "アップデートを確認…";
+"Updates unavailable — this build has no update key" = "アップデート不可 — このビルドには更新キーがありません";

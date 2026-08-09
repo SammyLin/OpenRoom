@@ -69,3 +69,7 @@
 "Analysing…" = "分析中…";
 "No background notes yet. They show up once there is enough conversation." = "還沒有背景資料。累積夠多對話後會自動出現。";
 "Pipeline health" = "管線健康";
+
+/* Updates (Sparkle) */
+"Check for Updates…" = "檢查更新…";
+"Updates unavailable — this build has no update key" = "無法更新——這個 build 沒有更新金鑰";

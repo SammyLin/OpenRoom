@@ -95,6 +95,18 @@ class Report:
         return True
 
 
+async def _pace(t0: float, seq: int) -> None:
+    """擋到第 seq 個 chunk 該出場的時刻為止。
+
+    排程對齊 t0 而不是「睡 CHUNK_MS」——後者每一輪都會把處理時間累加進去，
+    幾千個 chunk 之後就漂掉好幾秒，而漂掉的部分會直接算進延遲數字裡。
+    落後的時候不補睡：時間追不回來，硬送出去至少讓延遲誠實地變大。
+    """
+    behind = t0 + seq * CHUNK_MS / 1000 - time.monotonic()
+    if behind > 0:
+        await asyncio.sleep(behind)
+
+
 async def _read_events(ws, report: Report, t0: float, send_wall: list[float]) -> None:
     async for raw in ws:
         if isinstance(raw, bytes):
@@ -143,12 +155,11 @@ async def feed(
 
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "error",
-        "-re",                      # ← 真實時間節奏，整個測量的根據
-        # ffmpeg 6.1 起 -re 預設先 burst 0.5 秒才開始節流。那 0.5 秒的音訊是「瞬間到達」的，
-        # 開場那幾個 chunk 的延遲會因此偏樂觀——而開場正是模型還在暖機、最該量準的地方。
-        # 明著鎖成 0，不吃各版本預設值。需要 ffmpeg >= 6.1；更舊的版本會拒絕這個參數而
-        # 直接報錯，那比安靜地量出一組漂亮的假數字好。
-        "-readrate_initial_burst", "0",
+        # 這裡刻意沒有 -re。節奏由下面的送出迴圈自己排，因為 -re 的精度會隨 ffmpeg
+        # 版本漂：同一段 3 秒音訊，ffmpeg 8 送完要 2.87 秒，6.1.1 只要 2.48 秒。
+        # 延遲數字全部建立在「音訊是照真實時間到達的」這個前提上，那個前提不能外包
+        # 給一個行為會變的工具。ffmpeg 現在只負責解碼與重取樣，讀得多快都行——
+        # pipe 滿了它自己會擋，記憶體有界。
         "-i", str(audio),
         "-f", "s16le", "-ac", "1", "-ar", str(SAMPLE_RATE), "-",
     ]
@@ -188,11 +199,13 @@ async def feed(
         try:
             while True:
                 pcm = await proc.stdout.readexactly(CHUNK_BYTES)
+                await _pace(t0, seq)
                 send_wall.append(time.monotonic())
                 await ws.send(HEADER.pack(seq, seq * CHUNK_MS) + pcm)
                 seq += 1
         except asyncio.IncompleteReadError as exc:
             if exc.partial:  # 尾巴不足 100 ms，補零送完，別默默吞掉
+                await _pace(t0, seq)
                 send_wall.append(time.monotonic())
                 await ws.send(
                     HEADER.pack(seq, seq * CHUNK_MS)
@@ -297,8 +310,11 @@ async def _selfcheck() -> None:
 
     assert report.chunks_sent == 30, report.chunks_sent          # 3 秒 = 30 幀
     assert report.audio_ms == 3000, report.audio_ms
-    # -re 保證 wall clock 不會比音訊短（快進的話延遲數字就沒意義了）
-    assert report.wall_ms >= 2800, report.wall_ms
+    # 節奏是我們自己排的，所以這裡可以斷言確切的性質而不是抓一個寬鬆的門檻：
+    # 第 k 個 chunk 排在 t0 + k×100ms，最後一個是第 29 個，所以整段不可能短於 2900ms。
+    # 落後只會讓它變大。快進的話延遲數字就沒意義了，那正是這行要擋的事。
+    earliest = (report.chunks_sent - 1) * 100
+    assert report.wall_ms >= earliest, (report.wall_ms, earliest)
     assert len(report.latencies.get("partial", [])) >= 5, report.latencies
     assert len(report.latencies.get("final", [])) >= 2, report.latencies
     # stub 是立即回應，延遲應該是個位數毫秒等級

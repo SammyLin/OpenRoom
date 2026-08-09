@@ -1,0 +1,102 @@
+name: CI
+
+# 三個 job 而不是 matrix：三段程式碼跑在不同 runner、不同工具鏈、失敗原因完全
+# 不相干。matrix 只會讓「Swift 編不過」和「前端 lint 壞了」擠在同一個格子裡，
+# 而且 Swift 那格要 macOS、另外兩格 ubuntu 就夠，維度根本對不齊。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    # native/ 下三個 SPM package 的地板取最高的那個：openroom-diarize 是
+    # swift-tools 6.0 + macOS 14（FluidAudio 要求），另外兩個是 5.9 + macOS 13。
+    # macos-26 附的 Swift 6.x 三個都編得動；macos-14 的 Xcode 15 會直接拒讀
+    # tools-version 6.0 的 manifest。
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # 編不過時第一個要看的東西就是實際 toolchain，先印出來省一輪來回。
+      - run: swift --version
+
+      - name: Build SPM packages
+        run: |
+          set -euo pipefail
+          for pkg in OpenRoomApp openroom-capture openroom-diarize; do
+            echo "::group::swift build $pkg"
+            swift build --package-path "native/$pkg" -c release
+            # swift build 對著空的 target 集合也會回 0。要求執行檔真的躺在那裡，
+            # 不然 target 改名這種錯會一路綠燈到 release 才爆。
+            bin="$(swift build --package-path "native/$pkg" -c release --show-bin-path)"
+            test -x "$bin/$pkg" || { echo "::error::$pkg 編完卻沒有 $bin/$pkg"; exit 1; }
+            echo "::endgroup::"
+          done
+
+  python:
+    # 測試全是純 Python（analyst 的 selfcheck 只 spawn `sleep`），沒碰 mlx / CoreML，
+    # 所以跑 ubuntu：快、便宜，而且會逼我們別偷偷讓測試相依 macOS。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install (minimal extras only)
+        run: |
+          set -euo pipefail
+          uv venv --python 3.12
+          # dev = pytest，eval = websockets/jiwer（tests 直接 import eval.feed、eval.metrics）。
+          # 故意不裝 diarize extra：pyannote 會拖進整套 torch，幾 GB、好幾分鐘，而測試
+          # 一行都沒碰到它——diarize_worker 的 torch/pyannote 是函式內 import。mlx 同理，
+          # 而且它只有 Apple Silicon 有 wheel，ubuntu runner 根本裝不起來。
+          uv pip install -e '.[dev,eval]'
+          # numpy 是 openroom/asr_worker.py 的 module-level import，但 pyproject 沒宣告
+          # （本機是 mlx/torch 順手拖進來的）。CI 明著補這一行，不要靠別人的相依樹餵飯。
+          uv pip install numpy
+
+      - name: pytest
+        run: .venv/bin/python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          # 24：`npm run check` 是 `node src/lib/protocol.check.ts`，靠 Node 內建的
+          # type stripping 跑 TS，22.18 以下沒有這功能。
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - run: npm ci
+
+      # 只跑 package.json 裡真的有的 script。build 本身是 `tsc -b && vite build`，
+      # typecheck 已經包在裡面，不另外編一個。
+      - run: npm run lint
+      - run: npm run check
+      - run: npm run build
+
+      - name: Assert build output
+        # vite build 失敗會回非 0，但設定寫歪（outDir 打錯）會安靜地產出空目錄。
+        run: test -f dist/index.html || { echo "::error::vite build 沒吐出 app/dist/index.html"; exit 1; }

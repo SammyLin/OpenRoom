@@ -1,0 +1,209 @@
+name: Release
+
+# 打 tag 就出貨。每一步都自己驗自己：簽章、公證、bundle 內容，任何一項只要
+# 「看起來成功但其實沒做」就必須當場非 0 退出。這個 repo 存在的理由就是上一版
+# 到處都在默默失敗。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要出貨的 tag，例如 v0.2.0 或 v0.2.0-beta.1'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  # 兩個 release 同時跑會互相蓋掉 GitHub Release 的附件，排隊而不是取消。
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - name: Derive version and channel from the tag
+        id: meta
+        env:
+          # 經過 env 而不是直接內插進 shell：workflow_dispatch 的 tag 是使用者輸入。
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${TAG_INPUT:-$GITHUB_REF_NAME}"
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "::error::tag 必須是 v<版本>，拿到的是 '$TAG'"; exit 1 ;;
+          esac
+          # 帶 '-' 的（v0.2.0-beta.1）算 prerelease，乾淨的 tag 才是穩定版。
+          case "$TAG" in
+            *-*) PRERELEASE=true ;;
+            *)   PRERELEASE=false ;;
+          esac
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "releasing $TAG (prerelease=$PRERELEASE)"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.meta.outputs.tag }}
+          persist-credentials: false
+
+      - name: Check for signing material
+        id: secrets
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "$CERT" ] && [ -n "$CERT_PASSWORD" ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::沒有 APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD，這次出的是 adhoc 簽章的 build。除了編它的那台機器以外，任何 Mac 打開都會被 Gatekeeper 擋掉。"
+          fi
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "notarize=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::沒有 APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID，跳過公證。沒公證過的 app 就算有 Developer ID 簽章，第一次打開一樣會被 Gatekeeper 擋。"
+          fi
+
+      - name: Import Developer ID certificate
+        if: steps.secrets.outputs.sign == 'true'
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Resolve the signing identity
+        id: identity
+        if: steps.secrets.outputs.sign == 'true'
+        run: |
+          set -euo pipefail
+          # 匯入動作自己不會檢查匯進來的是不是 Developer ID。這裡直接問 keychain，
+          # 找不到就停——寧可沒有 release，也不要一顆偽裝成簽好的 app。
+          # `|| true`：grep 沒找到會回 1，配上 pipefail 會讓 shell 在印出下面那句
+          # 人看得懂的錯誤之前就死掉。
+          id="$(security find-identity -v -p codesigning \
+                | grep 'Developer ID Application' \
+                | head -1 | awk '{print $2}' || true)"
+          if [ -z "$id" ]; then
+            echo "::error::匯入了憑證，keychain 裡卻找不到 Developer ID Application 身分。APPLE_CERTIFICATE 裝的可能是 Apple Development 憑證。"
+            security find-identity -v -p codesigning || true
+            exit 1
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "signing with $id"
+
+      - name: Build and sign OpenRoom.app
+        env:
+          # 空字串會走 build-app.sh 的 `${SIGN_IDENTITY:--}` 預設，也就是 adhoc。
+          SIGN_IDENTITY: ${{ steps.identity.outputs.id }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          # 打包邏輯留在 build-app.sh：本機跑的跟 CI 跑的必須是同一份，複製到
+          # YAML 裡就等著兩邊慢慢漂走。
+          native/OpenRoomApp/build-app.sh
+          APP=native/OpenRoomApp/OpenRoom.app
+          test -x "$APP/Contents/MacOS/OpenRoom" || { echo "::error::bundle 裡沒有執行檔"; exit 1; }
+          # Info.plist 的版本是 CI 唯一注進去的東西，出錯會做出一顆版本號說謊的 app。
+          got="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+          [ "$got" = "$VERSION" ] || { echo "::error::Info.plist 版本是 $got，tag 是 $VERSION"; exit 1; }
+
+      - name: Notarize and staple
+        if: steps.secrets.outputs.sign == 'true' && steps.secrets.outputs.notarize == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          APP=native/OpenRoomApp/OpenRoom.app
+          ditto -c -k --keepParent "$APP" notarize.zip
+          # --wait 在某些 Xcode 版本上，被拒絕也照樣回 0。所以自己讀 status。
+          xcrun notarytool submit notarize.zip \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+            --wait --output-format json > notary.json
+          status="$(python3 -c 'import json;print(json.load(open("notary.json"))["status"])')"
+          if [ "$status" != "Accepted" ]; then
+            echo "::error::公證回 $status"
+            xcrun notarytool log "$(python3 -c 'import json;print(json.load(open("notary.json"))["id"])')" \
+              --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" || true
+            exit 1
+          fi
+          xcrun stapler staple "$APP"
+          # 最終驗收：Gatekeeper 自己說了算，我們說了不算。
+          spctl --assess --type execute -vv "$APP"
+
+      - name: Archive
+        id: archive
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          # ditto 而不是 zip：.app 的 symlink 與擴充屬性（包含 staple 上去的票）
+          # 只有 ditto 會原樣帶過去。
+          name="OpenRoom-${VERSION}.zip"
+          ditto -c -k --keepParent native/OpenRoomApp/OpenRoom.app "$name"
+          test -s "$name" || { echo "::error::$name 是空的"; exit 1; }
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "$name"
+
+      - name: Compose release notes
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          SIGNED: ${{ steps.secrets.outputs.sign }}
+          NOTARIZED: ${{ steps.secrets.outputs.notarize }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/$REPO/blob/$TAG"
+          {
+            echo "### Install"
+            echo
+            echo "解壓 \`OpenRoom.app\`，拖進 /Applications。"
+            echo
+            echo "這顆 .app 是前端外殼——ASR 與講者分離還是跑在 repo 裡的 Python。"
+            echo "第一次用之前要先 clone 這個 repo 並建好 venv（\`uv venv --python 3.11\`），"
+            echo "repo 不在 \`~/workspaces/slab/openroom\` 的話用 \`OPENROOM_REPO_PATH\` 指過去。"
+            echo "步驟看 README。"
+            echo
+            echo "### README"
+            echo
+            echo "- [English]($base/README.md)"
+            echo "- [繁體中文]($base/README.zh-TW.md)"
+            echo "- [简体中文]($base/README.zh-CN.md)"
+            echo "- [日本語]($base/README.ja.md)"
+            echo
+            if [ "$SIGNED" != "true" ]; then
+              echo "### 警告：這個 build 沒有簽章"
+              echo
+              echo "adhoc 簽章，沒有 Developer ID、沒有公證。除了編出它的那台機器以外，"
+              echo "任何 Mac 打開都會被 Gatekeeper 擋掉。要自己承擔風險放行的話："
+              echo '`xattr -dr com.apple.quarantine /Applications/OpenRoom.app`。'
+              echo "或者直接從原始碼建：\`native/OpenRoomApp/build-app.sh\`。"
+            elif [ "$NOTARIZED" != "true" ]; then
+              echo "### 警告：有 Developer ID 簽章，但沒有公證"
+              echo
+              echo "第一次打開一樣會被 Gatekeeper 擋。要放行請右鍵 → 打開。"
+            fi
+          } > notes.md
+          cat notes.md
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: OpenRoom ${{ steps.meta.outputs.version }}
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          body_path: notes.md
+          files: ${{ steps.archive.outputs.name }}
+          fail_on_unmatched_files: true

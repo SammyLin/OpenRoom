@@ -25,7 +25,7 @@
 | 说话人分离 | pyannote.audio，**与 ASR 分属不同进程** |
 | 语言 | 中文和英文都是一等公民，包括句内混说 |
 | 音频来源 | macOS 系统音频采集（能录到 Teams / Google Meet） |
-| 存储 | SQLite |
+| 存储 | `runs/` 下面的文件。原本决定用 SQLite；单机、一次一场、写完只读一次，数据库换不到任何东西 |
 | 不做 | Postgres、Docker、Cloud Run、JWT、CORS、限流、模拟器 |
 
 ### 及格线（沿用旧 PRD §4 NFR）
@@ -151,6 +151,40 @@ appcast 那一条的 `sparkle:edSignature`，对不上就拒绝安装。`build-a
 程序发现自己没有公钥就根本不启动 updater，菜单里那一项灰掉、写着无法更新。一个按了没反应
 的"检查更新"就是静默降级。
 
+### 下载回来的 build 打不开
+
+Release 上挂的是 `.dmg`，而 macOS 会拒绝打开里面的东西：
+
+> 未打开“OpenRoom”——Apple 无法验证“OpenRoom”是否含有可能危害 Mac 或泄露隐私的恶意软件。
+
+这是正确行为，不是 build 坏了。用 Developer ID 签名并公证需要付费的 Apple Developer 账号，
+所以现在 release 是 adhoc 签名（`codesign --sign -`）、没有公证票。从网上下载的东西一律被
+打上隔离属性，而 macOS 不会运行「被隔离且未公证」的代码。
+
+差别就是一张证书。下载完直接能打开的项目——比如这份 workflow 的范本
+[openusage](https://github.com/robinebers/openusage)——它的 DMG 由
+`Developer ID Application: … (QC3D3H67V9)` 签名、一路串到 `Apple Root CA`，并且 staple 了
+公证票。我们的是 `Signature=adhoc`、`TeamIdentifier=not set`、
+`does not have a ticket stapled to it`。`release.yml` 里同样的签名、公证、staple 步骤早就
+写好了，只是 secret 是空的所以被 skip 掉。代码一行都不用改，缺的只是去注册并把 secret 填上。
+
+**自己编是最诚实的绕法，也是唯一不需要你关掉防护的做法**：`build-app.sh` 产出的 bundle
+从来没有被隔离过，直接就能打开。
+
+确实要跑下载回来的版本：**系统设置 → 隐私与安全性 → 安全性 →「仍要打开」**，或者
+
+```bash
+xattr -dr com.apple.quarantine /Applications/OpenRoom.app
+```
+
+跑之前先搞清楚它做了什么：隔离属性正是 macOS 会去检查下载代码的原因，去掉它等于对这个 app
+关掉那道检查。对一个你读得懂源码、自己编出来的可执行文件这样做是合理的；把它当成处理别人
+软件的习惯就不是。
+
+**这也意味着自动更新实际上是停用的。** Sparkle 安装新版的方式是替换整个 app bundle，而那
+份替换品要过的是同一道 Gatekeeper 检查。在 Apple 的 secret 到位之前，更新的结局是被拒绝，
+而不是换到新版本。
+
 ### 维护者的一次性设置
 
 1. 生成密钥对：用 Sparkle 自带的 `generate_keys`（`swift build` 之后在
@@ -159,12 +193,14 @@ appcast 那一条的 `sparkle:edSignature`，对不上就拒绝安装。`build-a
 2. 私钥存成 repository secret `SPARKLE_PRIVATE_KEY`。没有它，release workflow 会跳过整个
    appcast 并留一条 warning：这一版不会推给任何已安装的程序，它们停在原来的版本，直到有人
    手动下载。半张或没签名的 feed 比没有 feed 更糟，所以宁可什么都不发。
-3. 公钥交给 `build-app.sh` 读的 `SPARKLE_PUBLIC_ED_KEY` 环境变量——本机 `export`，CI 里给
-   打包那一步。这里没有默认值：填一个像模像样的 placeholder 会让坏掉的 build 看起来是配好
-   的。
+3. 公钥存成 repository secret `SPARKLE_PUBLIC_ED_KEY`。`build-app.sh` 从这个环境变量读，
+   写进 Info.plist 的 `SUPublicEDKey`；release.yml 每次 tag build 都会传进去。这里没有
+   默认值：填一个像模像样的 placeholder 会让坏掉的 build 看起来是配好的。两把钥匙必须同
+   进同出，只给私钥会被直接拦下——那会签出一份 appcast，而对应的 app 没有东西可以验证它，
+   错误只发生在用户的机器上，CI 这边一路绿灯。
 4. GitHub Pages 打开，来源选 `gh-pages` 分支，appcast 就发在那里。workflow 用
-   `peaceiris/actions-gh-pages` 推上去，`keep_files: true`，上面只放 `appcast.xml`，zip
-   留在 GitHub Release 上。
+   `peaceiris/actions-gh-pages` 推上去，`keep_files: true`，上面只放 `appcast.xml`，
+   `.dmg` 留在 GitHub Release 上。
 5. Apple 签名的 secret：`APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`（Developer ID
    Application 证书的 .p12，base64），以及公证要的 `APPLE_ID`、`APPLE_PASSWORD`、
    `APPLE_TEAM_ID`。
@@ -230,5 +266,7 @@ python -m eval.metrics wer corpus/<slug>/reference.jsonl hypothesis.txt --until-
   转录稿，比自动生成的可信）。这是繁体中文 WER 的基准。
 - **AMI Corpus**——完整的说话人标注，DER 的客观基准。等说话人分离做到那一步再接上。
 
-实时节奏由 `ffmpeg -re` 提供；音频走的路径和麦克风完全一样，所以测出来的延迟是真的，不是把模型
-离线批处理跑出来的那种假数字。
+实时节奏由 feeder 自己排：第 *k* 个 chunk 排在 `t0 + k × 100ms`，不依赖 `ffmpeg -re`——后者
+的精度随版本漂移，同一段 3 秒音频在 ffmpeg 8 上要 2872ms，在 6.1.1 上只要 2484ms，而这个差
+额会直接算进延迟数字里。ffmpeg 只负责解码和重采样。音频走的路径和麦克风完全一样，所以测出来
+的延迟是真的，不是把模型离线批处理跑出来的那种假数字。

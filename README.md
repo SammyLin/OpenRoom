@@ -28,7 +28,7 @@ So the first rule of this version is not model quality:
 | Diarization | pyannote.audio, **in a separate process from ASR** |
 | Languages | Chinese and English both first-class, including intra-sentence mixing |
 | Audio source | macOS system audio capture (records Teams / Google Meet) |
-| Storage | SQLite |
+| Storage | Files under `runs/`. The original decision was SQLite; one machine running one meeting writes once and reads once, so a database earned nothing |
 | Not doing | Postgres, Docker, Cloud Run, JWT, CORS, rate limiting, simulator |
 
 ### Pass marks (carried over from the old PRD §4 NFR)
@@ -163,6 +163,55 @@ shell script, not an Xcode project.
 native/OpenRoomApp/build-app.sh   # → native/OpenRoomApp/OpenRoom.app
 ```
 
+The app is a front end and nothing else. ASR and diarization run in the Python backend
+in this repo, which the app starts for you — it looks for the repo at
+`~/workspaces/slab/openroom` unless `OPENROOM_REPO_PATH` says otherwise. Install the
+backend first (see [Running it](#running-it)); without it the app opens and then cannot
+transcribe anything.
+
+### The downloaded build will not open
+
+Releases carry a `.dmg`, and macOS will refuse to open what is inside it:
+
+> "OpenRoom" Not Opened — Apple could not verify "OpenRoom" is free of malware that may
+> harm your Mac or compromise your privacy.
+
+That is correct behaviour, not a broken build. Signing this app with a Developer ID and
+notarizing it requires a paid Apple Developer account, so the releases are ad-hoc signed
+(`codesign --sign -`) and carry no notarization ticket. Anything downloaded from the
+internet is quarantined, and macOS refuses to run un-notarized quarantined code.
+
+The whole difference is one certificate. A project that opens without any of this — say
+[openusage](https://github.com/robinebers/openusage), whose release workflow this one is
+modelled on — ships a DMG signed by `Developer ID Application: … (QC3D3H67V9)` and
+chaining to `Apple Root CA`, with a notarization ticket stapled to it. Ours reports
+`Signature=adhoc`, `TeamIdentifier=not set`, and `does not have a ticket stapled to it`.
+`release.yml` here already performs exactly the same signing, notarization and stapling
+steps; with the secrets absent they are skipped, which is what the release log shows.
+Nothing in the code needs to change — enrolling and adding the secrets is the entire gap.
+
+Building it yourself is the honest way around this, and the only one that does not ask
+you to switch off a protection: `build-app.sh` produces a bundle that was never
+quarantined, so it opens normally.
+
+To run a downloaded build anyway, System Settings → Privacy & Security → Security →
+"Open Anyway", or:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/OpenRoom.app
+```
+
+Understand what that does before you run it: quarantine is what makes macOS check
+downloaded code at all, and stripping it turns that check off for this app. It is a
+reasonable thing to do to a binary you built from source you can read. It is not a
+reasonable habit to apply to software generally, and this README is not the place you
+should be learning the command for someone else's download.
+
+**This also disables auto-update in practice.** Sparkle installs the new version by
+replacing the app bundle, and the replacement is subject to the same Gatekeeper check as
+the first download. Until the Apple secrets exist, updates end in a refusal rather than
+a new version.
+
 ### Updating itself
 
 The app checks for its own updates through Sparkle 2. `SUEnableAutomaticChecks` is
@@ -172,7 +221,7 @@ After that it checks once a day (`SUScheduledCheckInterval`, 86400 seconds), plu
 whenever "Check for Updates…" in the app menu is used.
 
 The feed is <https://sammylin.github.io/OpenRoom/appcast.xml>, served from this repo's
-`gh-pages` branch. The downloads it points at are the `.zip` assets on the matching
+`gh-pages` branch. The downloads it points at are the `.dmg` assets on the matching
 GitHub Releases.
 
 Every update is verified by EdDSA signature against the `SUPublicEDKey` baked into
@@ -213,11 +262,12 @@ One-time setup:
    feed. The key is piped to `generate_appcast` on stdin, never through argv and never onto
    the runner's disk.
 
-3. Put the public key where `build-app.sh` reads it: the `SPARKLE_PUBLIC_ED_KEY`
-   environment variable, which it writes into `Info.plist` as `SUPublicEDKey`.
-   `.github/workflows/release.yml` does **not** pass it yet, so tagged builds are currently
-   packaged with no update key; wire it in before the first release that is meant to be
-   updatable.
+3. Add the public key as the repository secret `SPARKLE_PUBLIC_ED_KEY`. `build-app.sh`
+   reads it from the environment and writes it into `Info.plist` as `SUPublicEDKey`;
+   `release.yml` passes it through on every tagged build. The two keys are refused unless
+   they arrive together — a private key without its public half would sign an appcast for
+   an app that has no way to verify it, which fails on the user's machine and nowhere
+   else.
 
 4. Enable GitHub Pages on the `gh-pages` branch (Settings → Pages → Deploy from a branch,
    `gh-pages`, `/ (root)`) so the feed URL above actually serves. The branch is created by
@@ -292,6 +342,9 @@ Corpora live in `corpus/`, not under version control.
 - **AMI Corpus** — full speaker annotations, the objective baseline for DER. To be wired
   up when diarization gets there.
 
-`ffmpeg -re` provides the real-time pacing; the audio takes exactly the same path as the
-microphone, so the latency being measured is real, not the fake numbers you get from
-running the model offline in a batch.
+The feeder schedules chunk *k* for `t0 + k × 100 ms` itself rather than leaning on
+`ffmpeg -re`, whose accuracy moves between ffmpeg versions — the same three seconds of
+audio feeds in 2872 ms through ffmpeg 8 and 2484 ms through 6.1.1, and that difference
+lands directly in the latency figures. ffmpeg only decodes and resamples. The audio then
+takes exactly the same path as the microphone, so the latency being measured is real, not
+the fake numbers you get from running the model offline in a batch.

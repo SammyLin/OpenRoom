@@ -24,7 +24,7 @@ socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料�
 | Diarization | pyannote.audio，**與 ASR 分成兩個 process** |
 | 語言 | 中英雙一級，含句中夾雜 |
 | 音訊來源 | macOS 系統音訊擷取（錄 Teams / Google Meet） |
-| 儲存 | SQLite |
+| 儲存 | `runs/` 底下的檔案。原本決定用 SQLite；單機、一次一場、寫完只讀一次，資料庫換不到任何東西 |
 | 不做 | Postgres、Docker、Cloud Run、JWT、CORS、rate limit、simulator |
 
 ### 及格線（沿用舊版 PRD §4 NFR）
@@ -148,6 +148,41 @@ updater 根本不會啟動：stderr 印一行 `no SUPublicEDKey in Info.plist �
 disabled`，選單那一項灰掉並直說「無法更新——這個 build 沒有更新金鑰」，而不是按了沒
 反應。
 
+### 下載回來的 build 打不開
+
+Release 上掛的是 `.dmg`，而 macOS 會拒絕打開裡面的東西：
+
+> 未打開「OpenRoom」——Apple 無法驗證「OpenRoom」是否含有可能危害 Mac 或洩漏隱私的惡意
+> 軟體。
+
+這是正確行為，不是 build 壞了。要用 Developer ID 簽章並公證需要付費的 Apple Developer
+帳號，所以現在 release 是 adhoc 簽章（`codesign --sign -`）、沒有公證票。從網路下載的東
+西一律被加上隔離屬性，而 macOS 不會執行「被隔離且未公證」的程式碼。
+
+差別就是一張憑證。下載完直接開得起來的專案——例如這份 workflow 的範本
+[openusage](https://github.com/robinebers/openusage)——它的 DMG 由
+`Developer ID Application: … (QC3D3H67V9)` 簽章、一路串到 `Apple Root CA`，而且 staple
+了公證票。我們的是 `Signature=adhoc`、`TeamIdentifier=not set`、
+`does not have a ticket stapled to it`。`release.yml` 早就有一模一樣的簽章、公證、staple
+步驟，只是 secret 是空的所以被 skip 掉。程式碼一行都不用改，缺的只是去註冊跟把 secret 填上。
+
+**自己編是最誠實的繞法，也是唯一不需要你關掉防護的做法**：`build-app.sh` 產出的 bundle
+從來沒有被隔離過，直接打得開。
+
+真的要跑下載回來的版本：**系統設定 → 隱私權與安全性 → 安全性 →「仍要打開」**，或是
+
+```bash
+xattr -dr com.apple.quarantine /Applications/OpenRoom.app
+```
+
+跑之前先弄懂它做了什麼：隔離屬性正是 macOS 會去檢查下載程式碼的原因，拿掉它等於對這個
+app 關掉那道檢查。對一顆你讀得懂原始碼、自己編出來的執行檔這樣做是合理的；把它當成處理
+別人軟體的習慣則不是。
+
+**這也代表自動更新實際上是停用的。** Sparkle 安裝新版的方式是替換整個 app bundle，而那
+份替換品要過的是同一道 Gatekeeper 檢查。在 Apple 的 secret 到位之前，更新的結局是被拒絕，
+不是換到新版本。
+
 ### 維護者的一次性設定
 
 ```bash
@@ -158,11 +193,10 @@ $KEYS               # 產生金鑰對：私鑰進 login keychain，公鑰印出�
 $KEYS -x private.key  # 匯出私鑰，貼進 secret 之後把這個檔案刪掉
 ```
 
-1. 公鑰 → `SPARKLE_PUBLIC_ED_KEY`，`build-app.sh` 從這個環境變數讀，寫進 Info.plist。
-   公鑰不是秘密。**但 release.yml 目前沒有把它傳進 build 那一步**，所以現在 tag 出來的
-   build 仍然沒有 `SUPublicEDKey`——CI log 上有那三行 WARNING，選單是灰的。在接上去之
-   前，只有本機 `export SPARKLE_PUBLIC_ED_KEY=... && native/OpenRoomApp/build-app.sh`
-   包出來的 app 更新得了。
+1. 公鑰 → repository secret `SPARKLE_PUBLIC_ED_KEY`。`build-app.sh` 從這個環境變數讀，
+   寫進 Info.plist 的 `SUPublicEDKey`；release.yml 每次 tag build 都會傳進去。兩把鑰匙
+   必須同進同出，只給私鑰會被擋下來——那會簽出一份 appcast，而對應的 app 沒有東西可以
+   驗證它，錯誤只會發生在使用者的機器上，CI 這邊一路綠燈。
 2. 私鑰 → repository secret `SPARKLE_PRIVATE_KEY`。release.yml 只用 stdin 餵給
    `generate_appcast`，不走 argv（runner 上每個 process 都讀得到 argv），也不落地。沒
    有這個 secret 就整份 appcast 不發：一份沒簽章或只剩一筆的 feed 比沒有 feed 更糟。
@@ -239,5 +273,7 @@ python -m eval.metrics wer corpus/<slug>/reference.jsonl hypothesis.txt --until-
   （真人逐字稿，比自動字幕可信）。繁中 WER 的基準就用這支。
 - **AMI Corpus**——有完整講者標註，DER 的客觀基準。等 diarization 那步才接。
 
-`ffmpeg -re` 負責真實時間節奏；音訊走的路徑跟麥克風完全一樣，所以測得到延遲，
-不是離線批次跑模型的假數字。
+真實時間節奏由 feeder 自己排：第 *k* 個 chunk 排在 `t0 + k × 100ms`，不靠 `ffmpeg -re`
+——後者的精度隨版本漂，同一段 3 秒音訊在 ffmpeg 8 要 2872ms、在 6.1.1 只要 2484ms，而
+那個差額會直接算進延遲數字裡。ffmpeg 只負責解碼與重取樣。音訊走的路徑跟麥克風完全一樣，
+所以測得到延遲，不是離線批次跑模型的假數字。

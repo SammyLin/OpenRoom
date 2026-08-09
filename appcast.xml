@@ -3,6 +3,15 @@
     <channel>
         <title>OpenRoom</title>
         <item>
+            <title>0.1.1</title>
+            <pubDate>Sun, 09 Aug 2026 15:46:56 +0000</pubDate>
+            <sparkle:version>0.1.1</sparkle:version>
+            <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/SammyLin/OpenRoom/releases/download/v0.1.1/OpenRoom-0.1.1.dmg" length="1531571" type="application/octet-stream" sparkle:edSignature="C+NngIsg+k6pQupFR4CoNiSQISVBy/cN7Yu1kPRDSz2yAmoJ8ymd/pzPiaHt9L8xWl2P/gb3mZ/7qe8ZVONvDg=="/>
+        </item>
+        <item>
             <title>0.1.0-beta.2</title>
             <pubDate>Sun, 09 Aug 2026 15:40:05 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>

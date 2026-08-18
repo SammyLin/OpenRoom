@@ -42,6 +42,10 @@ final class ModelStore: ObservableObject {
     @Published private(set) var received: Int64 = 0
     @Published private(set) var total: Int64 = 0
     @Published private(set) var error: String?
+    /// 預抓就沒抓到的 repo。非必要模型抓不到時會議照開，但別在開場再試一次同一個
+    /// 抓不到的位址——使用者只會多等一輪 timeout，拿到同一個錯誤。
+    private(set) var unavailable: Set<String> = []
+    private(set) var unavailableReason: [String: String] = [:]
 
     /// 模型放在哪。使用者問「那 1GB 在我硬碟哪裡」時要答得出來，不然就只能猜。
     /// 跟 `ModelUtils.resolveOrDownloadModel` 寫入的位置是同一個。
@@ -54,12 +58,18 @@ final class ModelStore: ObservableObject {
                                          isDirectory: true)
     }
 
-    /// 權重已經在硬碟上。用來決定要不要驗雜湊：已經在快取裡的東西上次就驗過了，
-    /// 每次開 app 重新雜湊 600MB 是拿使用者的時間換一個已經回答過的問題。
-    nonisolated static func isCached(_ spec: Spec) -> Bool {
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: directory(for: spec), includingPropertiesForKeys: nil)) ?? []
-        return files.contains { $0.pathExtension == "safetensors" }
+    /// 這份權重驗過了。驗完才寫這個檔，所以「下載完但還沒驗就被關掉」下次會重驗，
+    /// 而不是被當成驗過的東西放行——後者正是套件那個「有一個非零 safetensors 就算數」
+    /// 的弱檢查，這一層存在的理由就是不信它。
+    ///
+    /// 用 marker 不用「掃目錄有沒有 safetensors」：驗過一次就不必每次開 app 重新
+    /// 雜湊 600MB，那是拿使用者的時間換一個已經回答過的問題。
+    nonisolated static func verifiedMarker(_ spec: Spec) -> URL {
+        directory(for: spec).appendingPathComponent(".openroom-verified")
+    }
+
+    nonisolated static func isVerified(_ spec: Spec) -> Bool {
+        FileManager.default.fileExists(atPath: verifiedMarker(spec).path)
     }
 
     /// 給 UI 的一行字。有總大小才報進度百分比——沒有的時候寧可只說在抓什麼，
@@ -84,20 +94,27 @@ final class ModelStore: ObservableObject {
     /// 會議）。`error` 是原因；使用者自己按取消的時候 `error` 是 nil——那不是故障。
     func prefetch() async -> Bool {
         error = nil
+        unavailable = []
+        unavailableReason = [:]
         defer { fetching = nil }
         for spec in Self.required {
             guard let repoID = Repo.ID(rawValue: spec.repo) else {
-                guard spec.essential else { continue }
+                guard spec.essential else {
+                    unavailable.insert(spec.repo)
+                    unavailableReason[spec.repo] = String(format: L("Invalid model repository: %@"),
+                                                          spec.repo)
+                    continue
+                }
                 error = String(format: L("Invalid model repository: %@"), spec.repo)
                 return false
             }
-            // 已經在快取裡就不再驗一次雜湊，但下載完的一定要驗。
-            let wasCached = Self.isCached(spec)
+            // 驗過的才跳過驗證。只是「檔案在那裡」不算——那正是我們不信的那個檢查。
+            let wasVerified = Self.isVerified(spec)
             fetching = spec.label
             stage = .downloading
             received = 0
             total = 0
-            note("fetching \(spec.repo) (cached: \(wasCached))")
+            note("fetching \(spec.repo) (verified: \(wasVerified))")
             do {
                 _ = try await ModelUtils.resolveOrDownloadModel(
                     client: HubClient(cache: .default),
@@ -110,7 +127,7 @@ final class ModelStore: ObservableObject {
                         self?.received = progress.completedUnitCount
                         self?.total = progress.totalUnitCount
                     })
-                if !wasCached {
+                if !wasVerified {
                     stage = .verifying
                     try await verify(spec)
                 }
@@ -127,7 +144,11 @@ final class ModelStore: ObservableObject {
                 // 非必要的模型抓不到，會議照開：沒有講者標籤的逐字稿還是逐字稿。
                 // 缺這件事不會被吞掉——`Diarizer.start` 稍後會發 `speaker_error`，
                 // LiveView 的管線健康那一欄看得到。
-                guard spec.essential else { continue }
+                guard spec.essential else {
+                    unavailable.insert(spec.repo)
+                    unavailableReason[spec.repo] = error.localizedDescription
+                    continue
+                }
                 self.error = String(format: L("Could not download %1$@: %2$@"),
                                     spec.label, error.localizedDescription)
                 return false
@@ -168,6 +189,13 @@ final class ModelStore: ObservableObject {
             }
             checked += 1
         }
+        guard checked > 0 else {
+            // HF 說有 LFS 權重，磁碟上一個都對不上檔名——可能是巢狀路徑，也可能根本沒下載到。
+            // 這種情況下說「驗過了」是假的，所以不留 marker，下次重驗。
+            note("verified nothing for \(spec.repo): none of \(expected.count) advertised LFS file(s) found on disk")
+            return
+        }
+        try? Data().write(to: Self.verifiedMarker(spec))
         note("verified \(checked) file(s) of \(spec.repo)")
     }
 

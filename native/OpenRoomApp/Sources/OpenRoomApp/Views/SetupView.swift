@@ -56,7 +56,7 @@ struct SetupView: View {
                     Button(action: onStart) {
                         HStack(spacing: 8) {
                             if busy { ProgressView().controlSize(.small) }
-                            Text(busy ? L("Connecting…") : L("Start"))
+                            Text(busy ? L("Starting…") : L("Start"))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 2)

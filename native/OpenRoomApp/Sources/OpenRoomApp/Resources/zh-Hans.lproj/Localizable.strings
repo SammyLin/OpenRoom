@@ -46,7 +46,7 @@
 "ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app." = "ScreenCaptureKit 抓系统输出，Meet／Teams 网页版或桌面版都收得到。";
 "Microphone" = "麦克风";
 "A physical meeting room, one microphone for everyone." = "线下会议室，一支麦克风收全场。";
-"Connecting…" = "连接中…";
+"Starting…" = "启动中…";
 "Start" = "开始";
 
 /* Live */

@@ -47,7 +47,7 @@
 "ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app." = "ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app.";
 "Microphone" = "Microphone";
 "A physical meeting room, one microphone for everyone." = "A physical meeting room, one microphone for everyone.";
-"Connecting…" = "Connecting…";
+"Starting…" = "Starting…";
 "Start" = "Start";
 
 /* Live */

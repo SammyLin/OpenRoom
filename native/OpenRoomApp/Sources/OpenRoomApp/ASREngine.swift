@@ -30,7 +30,7 @@ final class ASREngine {
 
     /// 載入模型並開始收音。冷啟動要編 Metal kernel，所以 `ready` 一定等到載完才發——
     /// 提早說 ready 等於叫上層把開場白送進黑洞。
-    func start(model repo: String, language: String?, context: String) async {
+    func start(model repo: String, language: String?) async {
         let t0 = Date()
         let loaded: any STTGenerationModel
         do {

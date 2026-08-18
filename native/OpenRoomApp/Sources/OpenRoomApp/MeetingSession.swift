@@ -31,12 +31,17 @@ final class MeetingSession: ObservableObject {
     private var ready = false
     /// 模型還在載的時候收到的音訊。載完一次補進去，不然開場白會掉。
     private var pending: [[Float]] = []
+    /// 收工握手：兩邊的收尾事件都到齊了才關檔。
+    private var stopping = false
+    private var asrEnded = false
+    private var speakerEnded = false
 
     func start(source: AudioSource, scenario: Scenario, model: String,
-               language: String?, context: String = "") async {
+               language: String?) async {
         segments = []; partial = ""; health = Health(); insights = []
         turns = []; speakers = 0; quietRounds = 0; audioMs = 0
         ready = false; pending = []
+        stopping = false; asrEnded = false; speakerEnded = false
         phase = .warming
 
         // 模型沒到位就別開始。抓不到就直接說抓不到——開一場沒有逐字稿的會議
@@ -72,17 +77,34 @@ final class MeetingSession: ObservableObject {
         }
 
         // 兩顆模型分開載：ASR 先到就先開始轉錄，講者標籤晚一點沒關係。
-        await asr.start(model: model, language: language, context: context)
-        Task { await diarizer.start() }
+        await asr.start(model: model, language: language)
+        // 預抓就抓不到的模型不必再試一次：`resolveOrDownloadModel` 會重打同一個 404,
+        // 使用者只會多等一輪 timeout,拿到同一句 speaker_error。
+        if models.unavailable.contains(ModelStore.diarizer.repo) {
+            sink(["type": "speaker_error", "code": "model_unavailable",
+                  "message": models.unavailableReason[ModelStore.diarizer.repo] ?? ""])
+        } else {
+            Task { await diarizer.start() }
+        }
     }
 
+    /// 收工不能順手把檔關掉：ASR 的最後幾句 `final` 跟 `done` 是停止之後才非同步吐出來的,
+    /// 這時候關掉 `EventLog` 等於把逐字稿尾巴丟進黑洞,`meeting.json` 的長度、句數、標題
+    /// 也全部少算。改成兩邊都收工才關,見 `closeLogIfFinished`。
     func stop() {
         capture.stop()
         asr?.stop()
-        Task { [diarizer, log] in
-            await diarizer?.finish()
-            await MainActor.run { log?.close() }
-        }
+        stopping = true
+        // 模型從來沒載起來就不會有 `done`,不然這裡會永遠等下去。
+        if !ready { asrEnded = true }
+        Task { [diarizer] in await diarizer?.finish() }
+        closeLogIfFinished()
+    }
+
+    private func closeLogIfFinished() {
+        guard stopping, asrEnded, speakerEnded else { return }
+        log?.close()
+        log = nil
     }
 
     /// 匯出跟畫面看到的一樣是段落，不是一行一秒的碎片。
@@ -109,15 +131,16 @@ final class MeetingSession: ObservableObject {
             pending.append(samples)
             return
         }
+        deliver(samples)
+    }
+
+    private func deliver(_ samples: [Float]) {
         asr?.feed(samples)
         diarizer?.feed(samples)
     }
 
     private func flushPending() {
-        for samples in pending {
-            asr?.feed(samples)
-            diarizer?.feed(samples)
-        }
+        for samples in pending { deliver(samples) }
         pending = []
     }
 
@@ -211,6 +234,11 @@ final class MeetingSession: ObservableObject {
         case "done":
             phase = .stopped
             analysing = false
+            asrEnded = true
+            closeLogIfFinished()
+        case "speaker_done":
+            speakerEnded = true
+            closeLogIfFinished()
         default:
             break
         }

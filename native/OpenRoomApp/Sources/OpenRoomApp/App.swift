@@ -39,6 +39,10 @@ struct OpenRoomApp: App {
                 // 那幾 GB 躺在哪裡是使用者的事。問不到答案的時候唯一的辦法是猜，
                 // 而猜錯的結果是刪掉別的東西。
                 Button(L("Show Model Files…")) {
+                    // 還沒下載過的時候這個目錄不存在，`selectFile` 會安靜地什麼都不做。
+                    // 先建出來：使用者要的是「就是這裡」，一個空資料夾就回答了這件事。
+                    try? FileManager.default.createDirectory(at: ModelStore.directory,
+                                                             withIntermediateDirectories: true)
                     NSWorkspace.shared.selectFile(nil,
                         inFileViewerRootedAtPath: ModelStore.directory.path)
                 }

@@ -18,6 +18,8 @@ final class Diarizer {
     static let sampleRate = 16_000
     /// 餵給模型的 chunk 長度，跟套件 `generateStream` 的預設一致。
     static let chunkSeconds: Float = 5.0
+    /// 等著跑的 chunk 上限（30 秒）。超過就是推論追不上收音了。
+    static let maxQueuedChunks = 6
 
     private let emit: @Sendable ([String: Any]) -> Void
     private var model: SortformerModel?
@@ -28,6 +30,8 @@ final class Diarizer {
     /// 整場累積的講者段落，每次都整份重發——UI 的 `speaker_turns` 就是「目前為止的全部」。
     private var turns: [[String: Any]] = []
     private var busy = false
+    /// 模型還在載的時候流掉的音訊長度（秒）。載完要報一聲，見 `start`。
+    private var skippedSeconds: Float = 0
 
     init(emit: @escaping @Sendable ([String: Any]) -> Void) {
         self.emit = emit
@@ -38,7 +42,9 @@ final class Diarizer {
             let loaded = try await SortformerModel.fromPretrained(repo)
             model = loaded
             state = loaded.initStreamingState()
-            emit(["type": "speaker_ready", "model": repo])
+            // 載入期間流掉的音訊要講出來：那段沒有講者標籤，不是「剛好沒人說話」。
+            emit(["type": "speaker_ready", "model": repo,
+                  "skipped_ms": Int(skippedSeconds * 1000)])
         } catch {
             // 沒有講者標籤是缺陷，不是可以靜靜跳過的事
             emit(["type": "speaker_error", "code": "model_load_failed", "message": "\(error)"])
@@ -46,9 +52,29 @@ final class Diarizer {
     }
 
     func feed(_ samples: [Float]) {
-        guard model != nil else { return }
-        buffer.append(contentsOf: samples)
         let step = Int(Self.chunkSeconds * Float(Self.sampleRate))
+        guard model != nil else {
+            // 模型還在載，這段沒人處理——但時間軸得照走，不然模型一上線，
+            // 之後每個講者段落都會往前偏掉「載入花的那幾十秒」。
+            let seconds = Float(samples.count) / Float(Self.sampleRate)
+            offsetSeconds += seconds
+            skippedSeconds += seconds
+            return
+        }
+        buffer.append(contentsOf: samples)
+
+        // 推論落後的時候音訊會一直堆在 buffer 裡。堆到上限就丟最舊的並且吵一聲：
+        // 靜靜堆下去等於記憶體沒有上限，而且講者標籤越拖越遠。
+        let cap = step * Self.maxQueuedChunks
+        if buffer.count > cap {
+            let lost = buffer.count - cap
+            buffer.removeFirst(lost)
+            offsetSeconds += Float(lost) / Float(Self.sampleRate)
+            emit(["type": "speaker_error", "code": "diarize_backpressure",
+                  "message": "講者分離跟不上，丟棄 \(lost * 1000 / Self.sampleRate) ms 音訊",
+                  "lost_ms": lost * 1000 / Self.sampleRate])
+        }
+
         guard buffer.count >= step, !busy else { return }
 
         let chunk = Array(buffer.prefix(step))

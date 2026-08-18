@@ -162,6 +162,11 @@ actor Analyst {
         }
     }
 
+    /// 殺手 task 跟等待端之間唯一要傳的一個 bit。
+    private final class Killed: @unchecked Sendable {
+        var value = false
+    }
+
     /// 跑一個相容 `claude -p ... --output-format json` 合約的 CLI。
     /// 這台機器不見得有 ANTHROPIC_API_KEY，但 Claude Code 已經登入過，CLI 直接借用那份授權。
     static func runCLI(_ binary: String, prompt: String, model: String,
@@ -182,15 +187,21 @@ actor Analyst {
         }
 
         // 逾時要真的殺掉：CLI 是獨立的重量級 process，不殺會在收工後繼續吃 CPU。
+        // 是不是逾時由殺手自己說，不能從 `terminationReason == .uncaughtSignal` 反推——
+        // CLI 自己 crash 也是那個值，那會把當掉報成 llm_timeout。
+        let killed = Killed()
         let killer = Task {
             try? await Task.sleep(for: .seconds(timeout))
-            if proc.isRunning { proc.terminate() }
+            if proc.isRunning {
+                killed.value = true
+                proc.terminate()
+            }
         }
         let outData = out.fileHandleForReading.readDataToEndOfFile()
         let errData = err.fileHandleForReading.readDataToEndOfFile()
         proc.waitUntilExit()
-        let timedOut = killer.isCancelled == false && proc.terminationReason == .uncaughtSignal
         killer.cancel()
+        let timedOut = killed.value
 
         if timedOut {
             throw LLMError(code: "llm_timeout", message: "分析超過 \(Int(timeout)) 秒沒回應")

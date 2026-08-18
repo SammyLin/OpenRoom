@@ -47,7 +47,7 @@
 "ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app." = "ScreenCaptureKit がシステム出力を取り込むので、Meet や Teams はブラウザ版でもデスクトップ版でも拾えます。";
 "Microphone" = "マイク";
 "A physical meeting room, one microphone for everyone." = "対面の会議室で、1 本のマイクで全員ぶんを拾います。";
-"Connecting…" = "接続中…";
+"Starting…" = "起動中…";
 "Start" = "開始";
 
 /* Live */

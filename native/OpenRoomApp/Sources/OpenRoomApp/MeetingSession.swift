@@ -21,45 +21,68 @@ final class MeetingSession: ObservableObject {
     @Published var lastError: String? = nil
 
     let capture = AudioCapture()
-    private var ws: URLSessionWebSocketTask?
-    private var seq: UInt32 = 0
+    /// 模型下載進度。收音之前一定先過這一關，不然第一次啟動會邊錄音邊抓 1GB，
+    /// pending 上限撐不到模型載完，開場白照樣掉。
+    let models = ModelStore()
+    private var asr: ASREngine?
+    private var diarizer: Diarizer?
+    private var analyst: Analyst?
+    private var log: EventLog?
     private var ready = false
-    private var pending: [Data] = []
+    /// 模型還在載的時候收到的音訊。載完一次補進去，不然開場白會掉。
+    private var pending: [[Float]] = []
 
-    func start(host: String, port: Int, source: AudioSource, scenario: Scenario) async {
+    func start(source: AudioSource, scenario: Scenario, model: String,
+               language: String?, context: String = "") async {
         segments = []; partial = ""; health = Health(); insights = []
         turns = []; speakers = 0; quietRounds = 0; audioMs = 0
-        seq = 0; ready = false; pending = []
-        phase = .connecting
-
-        guard let url = URL(string: "ws://\(host):\(port)/ws/m\(Int(Date().timeIntervalSince1970 * 1000))") else {
-            phase = .failed; return
-        }
-        let task = URLSession(configuration: .default).webSocketTask(with: url)
-        ws = task
-        task.resume()
-        receiveLoop(task)
-
+        ready = false; pending = []
         phase = .warming
-        sendJSON([
-            "type": "start", "sample_rate": SAMPLE_RATE, "channels": 1,
-            "format": "s16le", "source": source.rawValue, "scenario": scenario.rawValue,
-            "engine": "qwen-mlx",
-        ])
+
+        // 模型沒到位就別開始。抓不到就直接說抓不到——開一場沒有逐字稿的會議
+        // 比不開更糟，因為使用者是散會後才發現的。
+        guard await models.prefetch() else {
+            lastError = models.error
+            // 使用者自己按取消不是故障，回設定畫面就好；`error` 有值才是真的壞了。
+            phase = models.error == nil ? .idle : .failed
+            return
+        }
+
+        let meetingID = "m\(Int(Date().timeIntervalSince1970 * 1000))"
+        log = EventLog(meetingID: meetingID, scenario: scenario.rawValue)
+        analyst = Analyst(scenario: scenario.rawValue)
+
+        // 事件的唯一出口。所有事件都走這裡，才不會有哪條路徑漏記。
+        let sink: @Sendable ([String: Any]) -> Void = { [weak self] event in
+            Task { @MainActor in self?.receive(event) }
+        }
+        let asr = ASREngine(emit: sink)
+        let diarizer = Diarizer(emit: sink)
+        self.asr = asr
+        self.diarizer = diarizer
 
         capture.onFrame = { [weak self] pcm in
-            Task { @MainActor in self?.sendAudio(pcm) }
+            Task { @MainActor in self?.feed(pcm) }
         }
         let capturing = await capture.start(source: source)
         if !capturing {
             lastError = capture.lastError
             stop()
+            return
         }
+
+        // 兩顆模型分開載：ASR 先到就先開始轉錄，講者標籤晚一點沒關係。
+        await asr.start(model: model, language: language, context: context)
+        Task { await diarizer.start() }
     }
 
     func stop() {
         capture.stop()
-        if let ws, ws.state == .running { sendJSON(["type": "stop"]) }
+        asr?.stop()
+        Task { [diarizer, log] in
+            await diarizer?.finish()
+            await MainActor.run { log?.close() }
+        }
     }
 
     /// 匯出跟畫面看到的一樣是段落，不是一行一秒的碎片。
@@ -76,63 +99,50 @@ final class MeetingSession: ObservableObject {
         return "\(L("# Meeting Transcript"))\n\n\(body)\n"
     }
 
-    // MARK: - send
+    // MARK: - 音訊
 
-    private func sendAudio(_ pcm: Data) {
-        guard let ws, ws.state == .running else {
-            health.droppedBeforeReady += 1
+    /// 收音永遠不等推論。模型還沒載完就先存著，`ready` 之後一次補上。
+    private func feed(_ pcm: Data) {
+        let samples = Self.pcmToFloat(pcm)
+        guard ready else {
+            if pending.count >= 600 { health.droppedBeforeReady += 1; return } // 60s 上限
+            pending.append(samples)
             return
         }
-        if !ready {
-            if pending.count >= 600 { health.droppedBeforeReady += 1; return } // 60s 上限，跟 TS 版一致
-            pending.append(pcm)
-            return
-        }
-        let s = seq; seq += 1
-        ws.send(.data(frameWithHeader(seq: s, audioTsMs: s * UInt32(CHUNK_MS), pcm: pcm))) { _ in }
+        asr?.feed(samples)
+        diarizer?.feed(samples)
     }
 
     private func flushPending() {
-        guard let ws else { return }
-        for pcm in pending {
-            let s = seq; seq += 1
-            ws.send(.data(frameWithHeader(seq: s, audioTsMs: s * UInt32(CHUNK_MS), pcm: pcm))) { _ in }
+        for samples in pending {
+            asr?.feed(samples)
+            diarizer?.feed(samples)
         }
         pending = []
     }
 
-    private func sendJSON(_ obj: [String: Any]) {
-        guard let ws, let data = try? JSONSerialization.data(withJSONObject: obj),
-              let text = String(data: data, encoding: .utf8) else { return }
-        ws.send(.string(text)) { _ in }
+    nonisolated static func pcmToFloat(_ raw: Data) -> [Float] {
+        raw.withUnsafeBytes { buf in
+            buf.bindMemory(to: Int16.self).map { Float(Int16(littleEndian: $0)) / 32768.0 }
+        }
     }
 
-    // MARK: - receive
+    // MARK: - 事件
 
-    private nonisolated func receiveLoop(_ task: URLSessionWebSocketTask) {
-        task.receive { result in
-            switch result {
-            case .failure(let error):
-                // 舊版在這裡（TS 版 ws.onerror/onclose）都會明講並讓 UI 回設定畫面；
-                // 這支一度漏掉這段，斷線後 UI 會靜靜卡在「預熱中」——正是這專案第一守則
-                // 禁止的那種靜默降級。done/stop 是正常收工路徑，走 stop()，不會走到這裡。
-                Task { @MainActor [weak self] in
-                    guard let self, self.phase != .stopped else { return }
-                    self.health.errors.append(HealthError(
-                        code: "ws_error",
-                        message: String(format: L("Connection closed: %@. Is the backend running?"),
-                                        error.localizedDescription),
-                        fatal: true))
-                    self.phase = .failed
+    /// 引擎事件的唯一入口：先落地，再更新畫面，順便決定要不要跑一輪分析。
+    private func receive(_ ev: [String: Any]) {
+        log?.log(ev)
+        handle(ev)
+
+        guard ev["type"] as? String == "final", let analyst,
+              let text = ev["text"] as? String else { return }
+        let at = audioMs
+        Task {
+            await analyst.addFinal(text)
+            if await analyst.shouldRun() {
+                await analyst.run(atMs: at) { [weak self] event in
+                    Task { @MainActor in self?.receive(event) }
                 }
-                return
-            case .success(let msg):
-                if case .string(let text) = msg,
-                   let data = text.data(using: .utf8),
-                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    Task { @MainActor [weak self] in self?.handle(obj) }
-                }
-                self.receiveLoop(task)
             }
         }
     }

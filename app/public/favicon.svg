@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="OpenRoom">
-  <!-- Hallmark · pre-emit critique: P5 H4 E5 S5 R5 V4 -->
-  <rect x="4" y="4" width="56" height="56" rx="12" fill="#3157d5"/>
-  <path d="M16 16H48V24H24V40H48V48H16Z" fill="#fff"/>
-  <rect x="28" y="28" width="8" height="8" fill="#fff"/>
-  <rect x="44" y="28" width="8" height="8" fill="#fff"/>
-</svg>

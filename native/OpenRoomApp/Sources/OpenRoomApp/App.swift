@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Sparkle
 
@@ -16,7 +17,17 @@ private let updaterController: SPUStandardUpdaterController? = {
     return SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 }()
 
+/// `--selfcheck` 要在 SwiftUI 起來之前就跑完並結束，所以進入點自己寫，不用 `@main` 在 App 上。
 @main
+enum Entry {
+    static func main() {
+        if CommandLine.arguments.contains("--selfcheck") {
+            exit(SelfCheck.run())
+        }
+        OpenRoomApp.main()
+    }
+}
+
 struct OpenRoomApp: App {
     var body: some Scene {
         WindowGroup {
@@ -25,6 +36,12 @@ struct OpenRoomApp: App {
         .windowResizability(.contentSize)
         .commands {
             CommandGroup(after: .appInfo) {
+                // 那幾 GB 躺在哪裡是使用者的事。問不到答案的時候唯一的辦法是猜，
+                // 而猜錯的結果是刪掉別的東西。
+                Button(L("Show Model Files…")) {
+                    NSWorkspace.shared.selectFile(nil,
+                        inFileViewerRootedAtPath: ModelStore.directory.path)
+                }
                 if let updater = updaterController {
                     Button(L("Check for Updates…")) { updater.checkForUpdates(nil) }
                 } else {

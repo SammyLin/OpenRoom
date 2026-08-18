@@ -20,13 +20,13 @@
 | 項目 | 決定 |
 |---|---|
 | 形態 | 単一マシンの個人用ツール。同時に 1 会議、Apple Silicon 限定 |
-| バックエンド | Python 3.11 |
-| フロントエンド | Tailwind + shadcn(UX を再設計) |
-| ASR | Qwen3-ASR MLX(オンデバイス) |
-| 話者分離 | pyannote.audio、**ASR とは別プロセス** |
+| バックエンド | なし。すべて Mac アプリの中で動く |
+| フロントエンド | SwiftUI(`native/OpenRoomApp`) |
+| ASR | Qwen3-ASR、[mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift) 経由(オンデバイス) |
+| 話者分離 | Sortformer のストリーミング、同じパッケージ |
 | 言語 | 中国語と英語をどちらも一級市民として扱う。文中での混在も含む |
 | 音声ソース | macOS のシステム音声キャプチャ(Teams / Google Meet を録れる) |
-| ストレージ | `runs/` 以下のファイル。当初は SQLite と決めていた。マシン 1 台で 1 会議、一度書いて一度読むだけなら、データベースは何も生まない |
+| ストレージ | `~/Library/Application Support/OpenRoom/runs/` 以下のファイル。当初は SQLite と決めていた。マシン 1 台で 1 会議、一度書いて一度読むだけなら、データベースは何も生まない |
 | やらないこと | Postgres、Docker、Cloud Run、JWT、CORS、レート制限、シミュレータ |
 
 ### 合格ライン(旧 PRD §4 NFR から引き継ぎ)
@@ -43,19 +43,21 @@
 
 ## 構築順序
 
-1. ~~**eval ハーネス**~~ 完了
-2. ~~音声 → WS → ディスクに書き出し~~ 完了(WS 側は完了、macOS のシステム音声キャプチャは未着手)
-3. ~~Qwen3-ASR MLX(別プロセス)~~ レイテンシのゲートは通過、**WER は未通過**(29.4%、ゲートは 12%)
+1. ~~**eval ハーネス**~~ 完了。その後 Python バックエンドとともに引退
+2. ~~音声 → ディスクに書き出し~~ 完了
+3. ~~Qwen3-ASR MLX~~ レイテンシのゲートは通過、**WER は未通過**(29.4%、ゲートは 12%)
 4. ~~フロントエンド: 文字起こし + ヘルスパネル~~ 完了
 5. ~~ライブ分析レイヤー(interview / discussion)~~ 完了、文字起こしのエクスポートを含む
 6. **実際の会議で動かす** ← 現在地。中国語 WER 37.6%、レイテンシはゲートを通過、読める水準にはある
 7. WER: `context` で固有名詞を与える、`finalization_mode`(マージ層での境界の重複はすでに修正済み、2pp の価値がある)
-8. ~~pyannote による話者分離(別プロセス)~~ 完了、DER は未計測
-9. ~~macOS のシステム音声キャプチャ~~ 完了: `native/openroom-capture`。ScreenCaptureKit が
-   システム出力を掴むので(ブラウザのタブ共有に依存しない。つまり Teams のデスクトップアプリも
-   キャプチャできる)、`docs/protocol.md` そのままの WS クライアントとしてバックエンドに直結する。
+8. ~~話者分離~~ 完了、DER は未計測
+9. ~~macOS のシステム音声キャプチャ~~ 完了: ScreenCaptureKit がシステム出力を掴む
+   (ブラウザのタブ共有に依存しない。つまり Teams のデスクトップアプリもキャプチャできる)。
    初回起動時はシステム設定 > プライバシーとセキュリティ > 画面とシステム音声の収録 での
    許可が必要。
+10. ~~Python バックエンドを捨てる~~ 完了。ASR も話者分離も分析レイヤーもすべて Swift になり、
+    `uv venv` もサイドカープロセスも `HF_TOKEN` の取得も不要になった。以下の数値は Python 実装
+    で計測したものであり、**Swift 実装では計測し直していない**。
 
 もともと最後に予定していた LLM レイヤーを前倒しした。文字起こしは素材にすぎず、
 **「会議が続いている最中に、裏付け資料と追加で聞くべき質問を出す」ことがこのツールの存在理由**
@@ -69,44 +71,53 @@
 
 ## 実行方法
 
+アプリを開くだけ。インストールするものはなく、仮想環境もなく、起動するサーバーもなく、
+取得するトークンもない。
+
 ```bash
-uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -e '.[eval,dev,diarize]' 'mlx-qwen3-asr>=0.3.5'
-
-export HF_TOKEN=hf_...                    # the diarization model is a gated repo, see below
-python -m openroom.server --language en     # omit --language to auto-detect (use this for mixed zh/en)
-
-cd app && npm install && npm run dev      # frontend → http://localhost:5173
+native/OpenRoomApp/build-app.sh   # → native/OpenRoomApp/OpenRoom.app
+open native/OpenRoomApp/OpenRoom.app
 ```
 
-サーバーは先にモデルをウォームアップし(初回は Metal カーネルのコンパイルが走り、およそ 46 秒)、
-**ウォームアップが終わってから初めて `ready` を送る**。それより前に送られた音声は黙って飲み込まれる
-のではなく `error` が返る。フロントエンドは `ready` まで破棄ではなく**バッファリング**し、その後
-seq 順で再送する。抑え込まれるのは冒頭の発言であり、一度落とせば戻らない。
+モデルは初回利用時に Hugging Face から取得してキャッシュされる(約 1GB。置き場所は
+`~/.cache/huggingface/hub/mlx-audio/`。メニューの「モデルファイルを表示…」からも辿れる)。
+ダウンロードは**録音を始める前**に終わらせる。画面にはバイト数とキャンセルボタンを出す。
+4 分回り続けるスピナーはハングと見分けがつかないし、1GB を落としながら音声をバッファすれば
+`ready` 前のバッファはどうせ溢れる。途中で終了しても壊れない。次回は途中から再開する。
+落としたウェイトは Hugging Face が公表している sha256 と照合する。切り詰められたファイルや
+プロキシが返したエラーページは、ライブラリの「非ゼロバイトの safetensors が 1 つある」という
+チェックを通り抜け、あとでモデル読み込みの意味不明なエラーとして爆発するからだ。モデルの
+読み込みが終わったあとは、アプリは音声を破棄せず**バッファリング**する。抑え込まれるのは
+冒頭の発言であり、一度落とせば戻らない。
 
-セッションごとに `runs/<timestamp>-<meeting_id>/` へ書き出す: `audio.raw`(生の PCM)、
-`events.jsonl`(フロントエンドに送った**すべての**イベント。`_wall_ms` と `infer_ms` 付き)、
-`transcript.txt`。SQLite は使わない。マシン 1 台、同時 1 会議、一度書いて一度読むだけだからだ。
+文字起こしは必須だが、話者ラベルは必須ではない。話者モデルを取得できなければ、会議はそのまま
+始まり、パイプラインの健全性の欄にそう出る。話者名のない文字起こしも文字起こしだからだ。
 
-フロントエンドで「システム音声」を選ぶとブラウザの画面共有ダイアログを通ることになり、
-**「タブの音声を共有」に必ずチェックを入れること**。入れないと音声トラックが存在せず、その場合は
-黙って無音を録り続けるのではなくエラーになる。
+セッションごとに `~/Library/Application Support/OpenRoom/runs/<timestamp>-<meeting_id>/` へ
+書き出す: `events.jsonl`(UI が受け取った**すべての**イベント。`_wall_ms` 付き)、
+`transcript.txt`(1 行ずつ追記するので、クラッシュしても話された分は残る)、
+`meeting.json`(履歴一覧が読む要約)。SQLite は使わない。マシン 1 台、同時 1 会議、一度書いて
+一度読むだけだからだ。過去の会議はアプリの「過去の会議」で読める。書き出し、Finder で表示、
+ゴミ箱へ削除もできる。既定は無期限保持だ。テキストは場所を取らないし、会議の記録が勝手に
+期限切れで消えるのは最悪の既定値だからだ。
+
+「システム音声」を選ぶと ScreenCaptureKit がシステム出力を直接掴む。Teams や Meet の
+デスクトップアプリもブラウザのタブと同じように録れる。初回起動時はシステム設定 >
+プライバシーとセキュリティ > 画面とシステム音声の収録 での許可が必要。許可がなければ、
+アプリはそれを明示して開始を拒否する。黙って無音を録り続けることはしない。
 
 ### 話者分離
 
-pyannote は独立したプロセスで動き、「そこまでの音声全体」に対して再実行する。そのため話者の
-同一性が時間をまたいで保たれる。このモデルは **gated repo** である。まず
-<https://huggingface.co/pyannote/speaker-diarization-community-1> で規約に同意し、その上で
-`HF_TOKEN` を設定すること。設定がなければ、話者ラベルが黙って失われるのではなく
-`speaker_error` が返る。
+Sortformer はストリーミングモデルなので、話者ラベルは後から埋め戻されるのではなく文字起こしと
+同時に届く。チャンクをまたいだ話者の同一性は streaming state が保つ。gated repo ではないため、
+`HF_TOKEN` の手順は存在しない。
 
-```bash
-python -m openroom.server --no-diarize            # turn off when measuring ASR latency, both sides fight over the same GPU
-python -m openroom.server --diarize-idle-ratio 12 # more conservative: steadier ASR, later speaker labels
-```
+Python 実装で使っていた pyannote はストリーミングモデルではない。同一性を保つには「これまでの
+音声全体」に対して再実行する必要があり、会議の長さに比例したコストがかかるうえ、ASR から GPU を
+奪わないようデューティサイクルで抑える必要があった。それらはすべて不要になった。
+`docs/measurements.md` が記述しているのは、その古い構成である。
 
-**話者ラベルは後追いで埋められる**ため、文字起こしより数十秒遅れて届く。これはリアルタイム性を
-同一性の一貫性と引き換えにした結果だ。計測値は `docs/measurements.md` にある。
+失敗時は従来どおり `speaker_error` を送る。黙って話者ラベルを失うことはない。
 
 ### 分析レイヤー
 
@@ -117,13 +128,10 @@ python -m openroom.server --diarize-idle-ratio 12 # more conservative: steadier 
 400 文字たまり、かつ前回のラウンドから 25 秒経ってから初めて走り、前回のラウンドが返ってきて
 いなければスキップする。
 
-```bash
-python -m openroom.server --scenario interview --llm-model claude-sonnet-5
-python -m openroom.server --no-web-search   # stop it from searching the web to verify
-```
+シナリオはコマンドラインではなく、アプリのセットアップ画面で選ぶ。
 
-分析は常に音声キャプチャの後ろに並ぶ(`nice -n 15`、バックグラウンドタスク、さらに ASR が 6 秒
-以上遅れたらラウンドごと譲る)。スキップのたびに `insight_error` を送るので、理由は UI から見える。
+分析は常に音声キャプチャの後ろに並ぶ(`nice -n 15`、独自の Task で走るのでキャプチャや文字起こしを
+決してブロックしない)。スキップのたびに `insight_error` を送るので、理由は UI から見える。
 
 **LLM プロバイダは差し替え可能**で、環境変数 `OPENROOM_LLM_PROVIDER` で選ぶ
 (デフォルトは `claude-cli`、挙動は従来どおり):
@@ -135,9 +143,11 @@ python -m openroom.server --no-web-search   # stop it from searching the web to 
 | `anthropic-api` | Anthropic Messages API を直接呼ぶ | `ANTHROPIC_API_KEY` |
 | `ollama` | ローカルの Ollama サーバーを呼ぶ | `OLLAMA_HOST`(デフォルト `http://localhost:11434`)、`OPENROOM_OLLAMA_MODEL`(デフォルト `llama3.1`) |
 
+`open` は環境変数をアプリに渡さないので `--env` を使う:
+
 ```bash
-OPENROOM_LLM_PROVIDER=anthropic-api ANTHROPIC_API_KEY=sk-ant-... python -m openroom.server
-OPENROOM_LLM_PROVIDER=ollama OPENROOM_OLLAMA_MODEL=llama3.1 python -m openroom.server
+open --env OPENROOM_LLM_PROVIDER=ollama --env OPENROOM_OLLAMA_MODEL=llama3.1 \
+     native/OpenRoomApp/OpenRoom.app
 ```
 
 4 つのプロバイダはいずれも同じ振る舞いをする。どんな失敗でも `insight_error` を送り、黙って
@@ -269,50 +279,29 @@ workflow はフィードを発行せずにその場で失敗する。フィー�
 アップロードの**後**に行う。フィードが指す先のファイルは、フィードが公開される時点で
 存在していなければならない。
 
-## eval ハーネス
+## eval ハーネス(引退)
 
-数字がなければ書き直しで何かが良くなったのかを言えない。だからハーネスはプロダクトコードより
-先に作った。
+数値がなければ書き直しで良くなったのかを言えないので、これはどのプロダクトコードよりも先に
+作られた。中身は Python だった。YouTube からコーパスを取得し、音声をリアルタイムの速度で
+WebSocket に流し込み、WER と P95 レイテンシを計算していた。
 
-```bash
-uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -e '.[eval]'
+これは Python バックエンドとともに消えた。`ws://127.0.0.1:8000` を叩くものであり、そこで
+待ち受けているものはもう存在しない。**したがって、この README と `docs/measurements.md` にある
+数値は Python 実装のものであり、Swift 実装では再現していない。** 古い数値を現状として通すより、
+そう明示しておく。
 
-# fetch corpus: YouTube video → 16k mono wav + official subtitles as ground truth
-python -m eval.corpus fetch 'https://www.youtube.com/watch?v=...'
-
-# list the corpora already fetched
-python -m eval.corpus list
-
-# feed audio into the WS at real-time pace (same path the microphone takes), measure P95 latency
-python -m eval.feed corpus/<slug>/audio.wav --ws ws://127.0.0.1:8000/ws/test
-
-# compute WER (per-character for CJK, per-word for Latin, no language flag needed; comparing only the first N seconds requires reference.jsonl)
-python -m eval.metrics wer corpus/<slug>/reference.jsonl hypothesis.txt --until-sec 120
-```
-
-ASR を計測するときは `--no-analyst` でサーバーを起動すること。1 回の実行ごとに LLM の代金を
-払わずに済む。
-
-**手動字幕は必ずしも書き起こしではない。翻訳のこともある**(実際にやった。英語のインタビューに
-中国語字幕が付いていて、出てきた 80% の WER は完全に偽物だった)。`fetch` は動画の言語と
-突き合わせて警告を出す。`--langs` で字幕言語の優先順を指定できる。
-
-コーパスは `corpus/` に置き、バージョン管理下には入れない。
+Swift 実装向けに作り直すなら、wav を `ASREngine` に流し込んで参照文字起こしと差分を取ることに
+なる。古いコーパス用ツール(`eval/corpus.py`、`eval/feed.py`、`eval/metrics.py`)は git の履歴に
+残っているので、復活させる価値があれば拾えばよい。
 
 ### テスト素材
 
 - **GitLab Unfiltered**(<https://www.youtube.com/@GitLabUnfiltered/videos>)— 実際の複数人会議が
-  1 本のミックストラックに入っている。話者分離が相手にするのはまさにこれだ。公式字幕は WER の
-  ground truth として使えるが、**英語 WER はプロダクトの指標ではない**。
+  単一のミックストラックに入っており、話者分離が相手にするものそのもの。公式字幕は WER の
+  ground truth として使えるが、**英語の WER はプロダクトの指標ではない**。
 - **塞掐 Side Chat E417**(`6h6VsrclFTI`)— 中国語のインタビュー、中英混在、**手動の zh-TW 字幕**
-  (人間による書き起こしで、自動生成より信頼できる)。繁体字中国語 WER のベースラインはこれ。
-- **AMI Corpus** — 話者アノテーションが完備されており、DER の客観的なベースラインになる。
-  話者分離がそこまで進んだ段階で接続する。
+  (人間が作った文字起こしなので、自動生成より信頼できる)。繁体字中国語 WER のベースライン。
+- **AMI Corpus** — 完全な話者アノテーション付き。DER の客観的なベースライン。
 
-リアルタイムのペース配分は feeder 自身が行う。*k* 番目のチャンクを `t0 + k × 100ms` に送る
-スケジュールで、`ffmpeg -re` には頼らない。あの精度はバージョンによって動く——同じ 3 秒の音声
-が ffmpeg 8 では 2872ms、6.1.1 では 2484ms で流れ切ってしまい、その差はそのままレイテンシの
-数字に混入する。ffmpeg はデコードとリサンプルだけを担当する。音声はマイクとまったく同じ経路を
-通るので、計測しているレイテンシは本物であり、モデルをオフラインでバッチ実行して得られる偽の
-数字ではない。
+**手動字幕が必ずしも文字起こしとは限らない。翻訳のこともある**(踏んだ: 英語のインタビューに
+中国語字幕、結果として出た 80% の WER は完全に偽物だった)。

@@ -15,12 +15,6 @@
 "[%1$@] %2$@: %3$@" = "[%1$@] %2$@: %3$@";
 "[%1$@] %2$@" = "[%1$@] %2$@";
 
-/* Backend (sidecar python process) */
-"%@ not found — run `uv venv --python 3.11` in the repo first" = "%@ not found — run `uv venv --python 3.11` in the repo first";
-"Backend process exited unexpectedly (exit %lld)" = "Backend process exited unexpectedly (exit %lld)";
-"Could not launch python -m openroom.server: %@" = "Could not launch python -m openroom.server: %@";
-"Backend never opened port 8000 in 90 seconds" = "Backend never opened port 8000 in 90 seconds";
-
 /* Audio capture failures — stay specific, these are the only clue the user gets. */
 "No display found. ScreenCaptureKit audio capture has to be bound to a display or window." = "No display found. ScreenCaptureKit audio capture has to be bound to a display or window.";
 "System audio capture failed: %@. On first run you have to grant access in System Settings > Privacy & Security > Screen & System Audio Recording." = "System audio capture failed: %@. On first run you have to grant access in System Settings > Privacy & Security > Screen & System Audio Recording.";
@@ -29,7 +23,6 @@
 "Microphone failed to start: %@" = "Microphone failed to start: %@";
 
 /* WebSocket */
-"Connection closed: %@. Is the backend running?" = "Connection closed: %@. Is the backend running?";
 
 /* Onboarding */
 "Welcome to OpenRoom" = "Welcome to OpenRoom";
@@ -54,8 +47,6 @@
 "ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app." = "ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app.";
 "Microphone" = "Microphone";
 "A physical meeting room, one microphone for everyone." = "A physical meeting room, one microphone for everyone.";
-"Starting backend (the first run warms up the model, about 45 seconds)…" = "Starting backend (the first run warms up the model, about 45 seconds)…";
-"Backend ready" = "Backend ready";
 "Connecting…" = "Connecting…";
 "Start" = "Start";
 
@@ -75,3 +66,30 @@
    SUPublicEDKey: it cannot verify a download, so it must not offer to fetch one. */
 "Check for Updates…" = "Check for Updates…";
 "Updates unavailable — this build has no update key" = "Updates unavailable — this build has no update key";
+
+/* Model download. The first launch fetches ~1GB, so the UI has to say so. */
+"Transcription" = "Transcription";
+"Speaker labels" = "Speaker labels";
+"Fetching %@…" = "Fetching %@…";
+"Downloading %1$@ — %2$@ of %3$@" = "Downloading %1$@ — %2$@ of %3$@";
+"Models are downloaded once and reused. Quitting is safe — the download resumes." = "Models are downloaded once and reused. Quitting is safe — the download resumes.";
+"Invalid model repository: %@" = "Invalid model repository: %@";
+"Could not download %1$@: %2$@" = "Could not download %1$@: %2$@";
+
+/* Past meetings */
+"Past meetings" = "Past meetings";
+"No past meetings yet. Every meeting you record shows up here." = "No past meetings yet. Every meeting you record shows up here.";
+"Show in Finder" = "Show in Finder";
+"Delete" = "Delete";
+"Close" = "Close";
+"(no transcript)" = "(no transcript)";
+"Show Model Files…" = "Show Model Files…";
+
+/* Download control, verification and retention */
+"Cancel" = "Cancel";
+"Verifying %@…" = "Verifying %@…";
+"%@ is corrupt; it has been removed, please try again." = "%@ is corrupt; it has been removed, please try again.";
+"Keep recordings" = "Keep recordings";
+"Keep forever" = "Keep forever";
+"Delete after 30 days" = "Delete after 30 days";
+"Delete after 90 days" = "Delete after 90 days";

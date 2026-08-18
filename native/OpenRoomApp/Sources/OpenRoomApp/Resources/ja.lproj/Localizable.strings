@@ -15,12 +15,6 @@
 "[%1$@] %2$@: %3$@" = "[%1$@] %2$@：%3$@";
 "[%1$@] %2$@" = "[%1$@] %2$@";
 
-/* Backend */
-"%@ not found — run `uv venv --python 3.11` in the repo first" = "%@ が見つかりません。先に repo で `uv venv --python 3.11` を実行してください";
-"Backend process exited unexpectedly (exit %lld)" = "バックエンドのプロセスが予期せず終了しました（exit %lld）";
-"Could not launch python -m openroom.server: %@" = "python -m openroom.server を起動できません: %@";
-"Backend never opened port 8000 in 90 seconds" = "バックエンドが 90 秒たってもポート 8000 を開きませんでした";
-
 /* Audio capture */
 "No display found. ScreenCaptureKit audio capture has to be bound to a display or window." = "ディスプレイが見つかりません。ScreenCaptureKit の音声キャプチャはディスプレイかウインドウに紐付ける必要があります";
 "System audio capture failed: %@. On first run you have to grant access in System Settings > Privacy & Security > Screen & System Audio Recording." = "システム音声のキャプチャに失敗しました: %@。初回は「システム設定 > プライバシーとセキュリティ > 画面とシステムオーディオの記録」で許可が必要です。";
@@ -29,7 +23,6 @@
 "Microphone failed to start: %@" = "マイクを起動できませんでした: %@";
 
 /* WebSocket */
-"Connection closed: %@. Is the backend running?" = "接続が切れました: %@。バックエンドは動いていますか？";
 
 /* Onboarding */
 "Welcome to OpenRoom" = "OpenRoom へようこそ";
@@ -54,8 +47,6 @@
 "ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app." = "ScreenCaptureKit がシステム出力を取り込むので、Meet や Teams はブラウザ版でもデスクトップ版でも拾えます。";
 "Microphone" = "マイク";
 "A physical meeting room, one microphone for everyone." = "対面の会議室で、1 本のマイクで全員ぶんを拾います。";
-"Starting backend (the first run warms up the model, about 45 seconds)…" = "バックエンドを起動中（初回はモデルのウォームアップに約 45 秒）…";
-"Backend ready" = "バックエンド準備完了";
 "Connecting…" = "接続中…";
 "Start" = "開始";
 
@@ -74,3 +65,30 @@
 /* Updates (Sparkle) */
 "Check for Updates…" = "アップデートを確認…";
 "Updates unavailable — this build has no update key" = "アップデート不可 — このビルドには更新キーがありません";
+
+/* Model download */
+"Transcription" = "文字起こしモデル";
+"Speaker labels" = "話者ラベルモデル";
+"Fetching %@…" = "%@を取得中…";
+"Downloading %1$@ — %2$@ of %3$@" = "%1$@をダウンロード中 — %2$@／%3$@";
+"Models are downloaded once and reused. Quitting is safe — the download resumes." = "モデルのダウンロードは一度だけで、以降は再利用します。途中で終了しても次回そこから再開します。";
+"Invalid model repository: %@" = "モデルのリポジトリが不正です：%@";
+"Could not download %1$@: %2$@" = "%1$@をダウンロードできませんでした：%2$@";
+
+/* Past meetings */
+"Past meetings" = "過去の会議";
+"No past meetings yet. Every meeting you record shows up here." = "まだ記録がありません。録音した会議はここに並びます。";
+"Show in Finder" = "Finder で表示";
+"Delete" = "削除";
+"Close" = "閉じる";
+"(no transcript)" = "（文字起こしなし）";
+"Show Model Files…" = "モデルファイルを表示…";
+
+/* Download control, verification and retention */
+"Cancel" = "キャンセル";
+"Verifying %@…" = "%@を検証中…";
+"%@ is corrupt; it has been removed, please try again." = "%@ が壊れています。削除しました。もう一度お試しください。";
+"Keep recordings" = "記録の保持";
+"Keep forever" = "無期限で保持";
+"Delete after 30 days" = "30 日後に削除";
+"Delete after 90 days" = "90 日後に削除";

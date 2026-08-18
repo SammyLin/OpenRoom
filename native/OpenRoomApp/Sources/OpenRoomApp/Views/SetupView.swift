@@ -3,10 +3,13 @@ import SwiftUI
 struct SetupView: View {
     @Binding var source: AudioSource
     @Binding var scenario: Scenario
-    let backendState: BackendManager.State
     let error: String?
     let busy: Bool
+    /// 下載進度那一行。nil = 沒有下載在跑（模型都在快取裡）。
+    let download: (line: String, fraction: Double)?
     let onStart: () -> Void
+    let onCancel: () -> Void
+    let onHistory: () -> Void
 
     var body: some View {
         ZStack {
@@ -34,24 +37,46 @@ struct SetupView: View {
                     }
                 }
 
-                backendStatus
-
                 if let error {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(.red)
                 }
 
-                Button(action: onStart) {
-                    HStack(spacing: 8) {
-                        if busy { ProgressView().controlSize(.small) }
-                        Text(busy ? L("Connecting…") : L("Start"))
+                // 第一次啟動要抓 ~1GB。不畫出來的話畫面只有一顆轉圈，跟當掉長得一樣。
+                if let download {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(download.line).font(.caption).foregroundStyle(.secondary)
+                        ProgressView(value: download.fraction)
+                        Text(L("Models are downloaded once and reused. Quitting is safe — the download resumes."))
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 2)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(busy || backendState != .ready)
+
+                HStack(spacing: 10) {
+                    Button(action: onStart) {
+                        HStack(spacing: 8) {
+                            if busy { ProgressView().controlSize(.small) }
+                            Text(busy ? L("Connecting…") : L("Start"))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 2)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(busy)
+
+                    // 第一次啟動要抓 ~1GB。在飯店 wifi 上沒有退出的路，
+                    // 唯一的辦法就是強制結束 app——那才是真的會弄壞下載的做法。
+                    if busy {
+                        Button(L("Cancel"), action: onCancel)
+                            .buttonStyle(.bordered).controlSize(.large)
+                    }
+                }
+
+                Button(action: onHistory) {
+                    Label(L("Past meetings"), systemImage: "clock.arrow.circlepath")
+                }
+                .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
             }
             .padding(36)
             .frame(maxWidth: 480)
@@ -77,19 +102,6 @@ struct SetupView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
             content()
-        }
-    }
-
-    @ViewBuilder private var backendStatus: some View {
-        switch backendState {
-        case .notStarted, .starting:
-            statusPill(icon: "hourglass",
-                       text: L("Starting backend (the first run warms up the model, about 45 seconds)…"),
-                       tint: .secondary)
-        case .ready:
-            statusPill(icon: "checkmark.circle.fill", text: L("Backend ready"), tint: .green)
-        case .failed(let msg):
-            statusPill(icon: "xmark.octagon.fill", text: msg, tint: .red)
         }
     }
 

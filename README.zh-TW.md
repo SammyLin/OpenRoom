@@ -18,13 +18,13 @@ socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料�
 | 項目 | 決定 |
 |---|---|
 | 形態 | 單機個人工具。一次一場會議，Apple Silicon only |
-| 後端 | Python 3.11 |
-| 前端 | Tailwind + shadcn（UX 重新設計） |
-| ASR | Qwen3-ASR MLX（本機） |
-| Diarization | pyannote.audio，**與 ASR 分成兩個 process** |
+| 後端 | 沒有。全部跑在 Mac app 內 |
+| 前端 | SwiftUI（`native/OpenRoomApp`） |
+| ASR | Qwen3-ASR，走 [mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift)（本機） |
+| Diarization | Sortformer 串流，同一個套件 |
 | 語言 | 中英雙一級，含句中夾雜 |
 | 音訊來源 | macOS 系統音訊擷取（錄 Teams / Google Meet） |
-| 儲存 | `runs/` 底下的檔案。原本決定用 SQLite；單機、一次一場、寫完只讀一次，資料庫換不到任何東西 |
+| 儲存 | `~/Library/Application Support/OpenRoom/runs/` 底下的檔案。原本決定用 SQLite；單機、一次一場、寫完只讀一次，資料庫換不到任何東西 |
 | 不做 | Postgres、Docker、Cloud Run、JWT、CORS、rate limit、simulator |
 
 ### 及格線（沿用舊版 PRD §4 NFR）
@@ -41,17 +41,20 @@ socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料�
 
 ## 施工順序
 
-1. ~~**eval harness**~~ 完成
-2. ~~音訊 → WS → 落地存檔~~ 完成（WS 端完成；macOS 系統音訊擷取待做）
-3. ~~Qwen3-ASR MLX（獨立 process）~~ 延遲 gate 已過，**WER 還沒**（29.4%，gate 12%）
+1. ~~**eval harness**~~ 完成，後來跟 Python 後端一起退休
+2. ~~音訊 → 落地存檔~~ 完成
+3. ~~Qwen3-ASR MLX~~ 延遲 gate 已過，**WER 還沒**（29.4%，gate 12%）
 4. ~~前端：逐字稿 + 健康面板~~ 完成
 5. ~~即時分析層（面試／討論會議）~~ 完成，含匯出逐字稿
 6. **拿它開一場真的會議** ← 現在在這裡。中文 37.6% WER、延遲過 gate，能讀
 7. WER：`context` 餵專有名詞、`finalization_mode`（合併層的邊界重複已修掉 2pp）
-8. ~~pyannote 講者分離（獨立 process）~~ 完成，DER 還沒量
-9. ~~macOS 系統音訊擷取~~ 完成：`native/openroom-capture`，ScreenCaptureKit 抓系統輸出
-   （不靠瀏覽器分頁分享，Teams 桌面版也收得到），照 `docs/protocol.md` 直接當 WS
-   client 接後端。第一次跑要在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」授權。
+8. ~~講者分離~~ 完成，DER 還沒量
+9. ~~macOS 系統音訊擷取~~ 完成：ScreenCaptureKit 抓系統輸出（不靠瀏覽器分頁分享，
+   Teams 桌面版也收得到）。第一次跑要在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」
+   授權。
+10. ~~拿掉 Python 後端~~ 完成。ASR、講者分離、分析層全部是 Swift 了，不用 `uv venv`、
+    沒有 sidecar process、也不用申請 `HF_TOKEN`。下面那些數字是拿 Python 版量的，
+    **還沒在 Swift 版重量過**。
 
 原本排在最後的 LLM 層提前做了：逐字稿只是原料，**「一邊開會一邊給補充資料與追問建議」
 才是這個工具存在的理由**，先把它跑起來才知道逐字稿要多準。
@@ -59,45 +62,49 @@ socket 沒開的送出靜默回 false、引擎名字打錯靜默掉回假資料�
 而磨 WER 排在真實使用**後面**，是因為 gate 是抄舊版 PRD 的，不是量出來需要的。
 32% WER 的破碎英文逐字稿，分析層照樣吐得出可用的補充資料——所以主要指標是
 insight 品質，WER 只當診斷。要標註 insight 品質就得先有東西可標，事件因此落地
-（`runs/<時間>-<meeting_id>/events.jsonl`）。
+（`~/Library/Application Support/OpenRoom/runs/<時間>-<meeting_id>/events.jsonl`）。
 
 ## 跑起來
 
+打開 app 就好。沒有東西要安裝、沒有 venv、沒有 server 要開、也不用申請 token。
+
 ```bash
-uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -e '.[eval,dev,diarize]' 'mlx-qwen3-asr>=0.3.5'
-
-export HF_TOKEN=hf_...                    # 講者分離的模型是 gated repo，見下面
-python -m openroom.server --language en     # 不給 --language 就自動判斷（中英夾雜用這個）
-
-cd app && npm install && npm run dev      # 前端 → http://localhost:5173
+native/OpenRoomApp/build-app.sh   # → native/OpenRoomApp/OpenRoom.app
+open native/OpenRoomApp/OpenRoom.app
 ```
 
-Server 會先預熱模型（第一次要編譯 Metal kernel，約 46 秒），**預熱完才送 `ready`**。
-在那之前送音訊會收到 `error`，不會被靜靜吞掉。前端在 `ready` 之前**緩衝**而不是丟棄，
-`ready` 之後照 seq 補送——擋下來的是開場白，丟掉就沒了。
+模型第一次用會從 Hugging Face 下載並快取（約 1GB，放在
+`~/.cache/huggingface/hub/mlx-audio/`，選單裡的「顯示模型檔案…」也走得到）。下載在**開始
+收音之前**跑完，畫面上有下載量跟取消鈕：一顆轉了四分鐘的圈跟當掉長得一樣，而邊抓 1GB
+邊緩衝音訊本來就會爆掉 `ready` 前的緩衝區。中途離開不會壞，下次續傳。抓下來的權重會對
+Hugging Face 自己講的 sha256——被截斷的檔案或代理伺服器塞進來的錯誤頁，過得了套件那個
+「有一個非零位元組的 safetensors」的檢查，然後在載入模型時炸成一個看不懂的錯誤。模型載完
+之後 app 是**緩衝**音訊而不是丟棄——擋下來的是開場白，丟掉就沒了。
 
-每一場寫進 `runs/<時間>-<meeting_id>/`：`audio.raw`（原始 PCM）、`events.jsonl`
-（**所有**送給前端的事件，含 `_wall_ms` 與 `infer_ms`）、`transcript.txt`。
-不用 SQLite——單機、一次一場、寫完只讀一次。
+逐字稿是必要的，講者標籤不是。講者模型抓不到，會議照開並且在管線健康那一欄說出來——
+沒有講者名字的逐字稿還是逐字稿。
 
-前端選「系統音訊」會走瀏覽器的分享畫面對話框，**要勾「同時分享分頁音訊」**，
-沒勾就沒有音訊軌，這時會直接報錯而不是安靜地錄一片空白。
+每一場寫進 `~/Library/Application Support/OpenRoom/runs/<時間>-<meeting_id>/`：
+`events.jsonl`（**所有** UI 收到的事件，含 `_wall_ms`）、`transcript.txt`（一句一句
+append，當掉也留得住講過的話）、`meeting.json`（歷史清單讀的摘要）。
+不用 SQLite——單機、一次一場、寫完只讀一次。過去的會議在 app 裡「過去的會議」看得到：
+讀、匯出、在 Finder 顯示、刪到垃圾桶。預設永久保留——文字不佔空間，而會議紀錄自己過期
+消失是最糟的預設值。
+
+選「系統音訊」走 ScreenCaptureKit，直接抓系統輸出，Teams / Meet 桌面版跟瀏覽器分頁
+一樣收得到。第一次跑要在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」授權；沒授權
+app 會講出來並拒絕開始，而不是安靜地錄一片空白。
 
 ### 講者分離
 
-pyannote 跑在自己的 process，對「目前為止的整段音訊」重跑，所以講者身分前後一致。
-模型是 **gated repo**：要先到
-<https://huggingface.co/pyannote/speaker-diarization-community-1> 按同意，再設
-`HF_TOKEN`。沒設會收到 `speaker_error`，不會安靜地少標講者。
+Sortformer 是串流模型，講者標籤跟逐字稿一起到，不是回填的；跨 chunk 的講者身分由
+streaming state 維持一致。它不是 gated repo，所以沒有 `HF_TOKEN` 這一步。
 
-```bash
-python -m openroom.server --no-diarize            # 量 ASR 延遲時要關，兩邊搶同一顆 GPU
-python -m openroom.server --diarize-idle-ratio 12 # 更保守：ASR 更穩，講者標籤更晚到
-```
+Python 版用的 pyannote 不是串流模型：身分要前後一致就得對「目前為止的整段音訊」重跑，
+成本隨會議長度上升，還得用工作週期壓住，免得把 GPU 從 ASR 手上搶走。這些現在都不需要了。
+`docs/measurements.md` 描述的是那個舊安排。
 
-**講者標籤是回填的**，比逐字稿晚到數十秒；這是拿即時性換身分一致性，實測見
-`docs/measurements.md`。
+失敗一樣送 `speaker_error`，不會安靜地少標講者。
 
 ### 分析層
 
@@ -106,12 +113,9 @@ python -m openroom.server --diarize-idle-ratio 12 # 更保守：ASR 更穩，講
 登入，這台沒有 `ANTHROPIC_API_KEY`），所以每輪要花錢，觸發有節流：累積 400 字
 且距上輪 25 秒才跑，上一輪沒回來就跳過。
 
-```bash
-python -m openroom.server --scenario interview --llm-model claude-sonnet-5
-python -m openroom.server --no-web-search   # 不讓它上網查證
-```
+場合在 app 的設定畫面選，不是命令列參數。
 
-分析永遠排在收音後面（`nice -n 15`，背景 task，ASR 落後超過 6 秒就整輪讓路）。
+分析永遠排在收音後面（`nice -n 15`，跑在自己的 Task，不會擋到收音或逐字稿）。
 每一次跳過都送 `insight_error`，UI 看得到原因。
 
 **LLM provider 可以換**，用 `OPENROOM_LLM_PROVIDER` 環境變數選（預設 `claude-cli`，
@@ -124,9 +128,11 @@ python -m openroom.server --no-web-search   # 不讓它上網查證
 | `anthropic-api` | 直接打 Anthropic Messages API | `ANTHROPIC_API_KEY` |
 | `ollama` | 打本地 Ollama 伺服器 | `OLLAMA_HOST`（預設 `http://localhost:11434`）、`OPENROOM_OLLAMA_MODEL`（預設 `llama3.1`） |
 
+`open` 不會把環境變數傳給 app，要用 `--env`：
+
 ```bash
-OPENROOM_LLM_PROVIDER=anthropic-api ANTHROPIC_API_KEY=sk-ant-... python -m openroom.server
-OPENROOM_LLM_PROVIDER=ollama OPENROOM_OLLAMA_MODEL=llama3.1 python -m openroom.server
+open --env OPENROOM_LLM_PROVIDER=ollama --env OPENROOM_OLLAMA_MODEL=llama3.1 \
+     native/OpenRoomApp/OpenRoom.app
 ```
 
 四個 provider 都一樣：失敗一律送 `insight_error`，不會悄悄吐空結果。
@@ -249,44 +255,26 @@ git tag v0.2.0-beta.1 && git push origin v0.2.0-beta.1   # 帶 '-' 就是 prerel
 feed 筆數不准比舊的少（少了就是有人的升級路徑被砍掉）。抓不到既有的 `gh-pages` 也是
 硬錯誤——與其把整份歷史換成只有一筆的 feed，不如不發。
 
-## eval harness
+## eval harness（已退休）
 
-沒有數字就沒辦法說「重寫有沒有變好」，所以 harness 先於任何產品程式碼。
+沒有數字就無法說重寫有沒有變好，所以它排在任何產品程式碼之前。它是 Python 寫的：
+從 YouTube 抓語料、照即時速度把音訊餵進 WebSocket、算 WER 與 P95 延遲。
 
-```bash
-uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -e '.[eval]'
+它跟 Python 後端一起走了——它打的是 `ws://127.0.0.1:8000`，現在沒人在那裡聽。
+**所以這份 README 跟 `docs/measurements.md` 裡的數字都是 Python 版量的，還沒在 Swift 版
+重現過。** 講清楚，好過讓過期的數字冒充現況。
 
-# 抓語料：YouTube 影片 → 16k mono wav + 官方字幕當 ground truth
-python -m eval.corpus fetch 'https://www.youtube.com/watch?v=...'
-
-# 列出已抓的語料
-python -m eval.corpus list
-
-# 依真實時間節奏把音訊灌進 WS（跟麥克風走同一條路），量 P95 延遲
-python -m eval.feed corpus/<slug>/audio.wav --ws ws://127.0.0.1:8000/ws/test
-
-# 算 WER（CJK 逐字、拉丁逐詞，不用指定語言；只比前 N 秒要用 reference.jsonl）
-python -m eval.metrics wer corpus/<slug>/reference.jsonl hypothesis.txt --until-sec 120
-```
-
-量 ASR 時用 `--no-analyst` 開 server，免得每跑一次就付一次 LLM 的錢。
-
-**手動字幕不一定是逐字稿，也可能是翻譯**（踩過：英文訪談配中文字幕，WER 算出 80%
-全是假的）。`fetch` 會比對影片語言並警告，`--langs` 可以指定字幕語言的偏好順序。
-
-語料放 `corpus/`，不進版控。
+要在 Swift 版重建，做法是把 wav 餵進 `ASREngine` 再跟參考逐字稿比對；舊的語料工具
+（`eval/corpus.py`、`eval/feed.py`、`eval/metrics.py`）在 git 歷史裡，值得撿再撿。
 
 ### 測試素材
 
-- **GitLab Unfiltered**（<https://www.youtube.com/@GitLabUnfiltered/videos>）——真實多人會議、
-  單一混音音軌，正好打 diarization。有官方字幕可當 WER 的 ground truth，但**英文 WER
-  不是產品指標**。
-- **塞掐 Side Chat E417**（`6h6VsrclFTI`）——中文訪談、中英夾雜、**手動 zh-TW 字幕**
-  （真人逐字稿，比自動字幕可信）。繁中 WER 的基準就用這支。
-- **AMI Corpus**——有完整講者標註，DER 的客觀基準。等 diarization 那步才接。
+- **GitLab Unfiltered**（<https://www.youtube.com/@GitLabUnfiltered/videos>）——真實多人
+  會議、單一混音軌，正是講者分離要面對的東西。官方字幕可當 WER ground truth，但
+  **英文 WER 不是產品指標**。
+- **塞掐 Side Chat E417**（`6h6VsrclFTI`）——中文訪談、中英夾雜、**人工 zh-TW 字幕**
+  （人打的逐字稿，比自動生成的可信）。繁中 WER 以這個為基準。
+- **AMI Corpus**——完整講者標註，DER 的客觀基準。
 
-真實時間節奏由 feeder 自己排：第 *k* 個 chunk 排在 `t0 + k × 100ms`，不靠 `ffmpeg -re`
-——後者的精度隨版本漂，同一段 3 秒音訊在 ffmpeg 8 要 2872ms、在 6.1.1 只要 2484ms，而
-那個差額會直接算進延遲數字裡。ffmpeg 只負責解碼與重取樣。音訊走的路徑跟麥克風完全一樣，
-所以測得到延遲，不是離線批次跑模型的假數字。
+**人工字幕不一定是逐字稿，可能是翻譯**（踩過：英文訪談配中文字幕，量出來的 80% WER
+整個是假的）。

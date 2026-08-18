@@ -14,12 +14,6 @@
 "[%1$@] %2$@: %3$@" = "[%1$@] %2$@：%3$@";
 "[%1$@] %2$@" = "[%1$@] %2$@";
 
-/* Backend */
-"%@ not found — run `uv venv --python 3.11` in the repo first" = "找不到 %@——先在 repo 跑 `uv venv --python 3.11`";
-"Backend process exited unexpectedly (exit %lld)" = "後端 process 意外結束（exit %lld）";
-"Could not launch python -m openroom.server: %@" = "啟動不了 python -m openroom.server: %@";
-"Backend never opened port 8000 in 90 seconds" = "後端 90 秒沒開起 port 8000";
-
 /* Audio capture */
 "No display found. ScreenCaptureKit audio capture has to be bound to a display or window." = "找不到 display，ScreenCaptureKit 音訊擷取需要綁一個 display/window";
 "System audio capture failed: %@. On first run you have to grant access in System Settings > Privacy & Security > Screen & System Audio Recording." = "系統音訊擷取失敗：%@。第一次跑要在「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」授權。";
@@ -28,7 +22,6 @@
 "Microphone failed to start: %@" = "麥克風啟動失敗：%@";
 
 /* WebSocket */
-"Connection closed: %@. Is the backend running?" = "連線結束：%@。後端有跑嗎？";
 
 /* Onboarding */
 "Welcome to OpenRoom" = "歡迎使用 OpenRoom";
@@ -53,8 +46,6 @@
 "ScreenCaptureKit taps the system output, so Meet and Teams both work, browser or desktop app." = "ScreenCaptureKit 抓系統輸出，Meet／Teams 網頁版或桌面版都收得到。";
 "Microphone" = "麥克風";
 "A physical meeting room, one microphone for everyone." = "實體會議室，一支麥克風收全場。";
-"Starting backend (the first run warms up the model, about 45 seconds)…" = "後端啟動中（第一次要預熱模型，約 45 秒）…";
-"Backend ready" = "後端就緒";
 "Connecting…" = "連線中…";
 "Start" = "開始";
 
@@ -73,3 +64,30 @@
 /* Updates (Sparkle) */
 "Check for Updates…" = "檢查更新…";
 "Updates unavailable — this build has no update key" = "無法更新——這個 build 沒有更新金鑰";
+
+/* Model download */
+"Transcription" = "逐字稿模型";
+"Speaker labels" = "講者標籤模型";
+"Fetching %@…" = "正在取得%@…";
+"Downloading %1$@ — %2$@ of %3$@" = "正在下載%1$@——%2$@／%3$@";
+"Models are downloaded once and reused. Quitting is safe — the download resumes." = "模型只下載一次，之後重複使用。中途離開沒關係，下次會續傳。";
+"Invalid model repository: %@" = "模型位址無效：%@";
+"Could not download %1$@: %2$@" = "%1$@下載失敗：%2$@";
+
+/* Past meetings */
+"Past meetings" = "過去的會議";
+"No past meetings yet. Every meeting you record shows up here." = "還沒有記錄。每一場錄過的會議都會出現在這裡。";
+"Show in Finder" = "在 Finder 中顯示";
+"Delete" = "刪除";
+"Close" = "關閉";
+"(no transcript)" = "（沒有逐字稿）";
+"Show Model Files…" = "顯示模型檔案…";
+
+/* Download control, verification and retention */
+"Cancel" = "取消";
+"Verifying %@…" = "正在驗證%@…";
+"%@ is corrupt; it has been removed, please try again." = "%@ 損壞，已經刪掉，請再試一次。";
+"Keep recordings" = "紀錄保留";
+"Keep forever" = "永久保留";
+"Delete after 30 days" = "30 天後刪除";
+"Delete after 90 days" = "90 天後刪除";

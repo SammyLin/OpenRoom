@@ -1,8 +1,7 @@
 name: CI
 
-# 三個 job 而不是 matrix：三段程式碼跑在不同 runner、不同工具鏈、失敗原因完全
-# 不相干。matrix 只會讓「Swift 編不過」和「前端 lint 壞了」擠在同一個格子裡，
-# 而且 Swift 那格要 macOS、另外兩格 ubuntu 就夠，維度根本對不齊。
+# 只剩 Swift 一個 job。ASR、講者分離、分析層全部搬進 native/OpenRoomApp 之後，
+# 這個 repo 沒有 Python 也沒有前端了，原本的 python / frontend 兩個 job 一起退休。
 on:
   push:
     branches: [main]
@@ -18,10 +17,9 @@ concurrency:
 
 jobs:
   swift:
-    # native/ 下三個 SPM package 的地板取最高的那個：openroom-diarize 是
-    # swift-tools 6.0 + macOS 14（FluidAudio 要求），另外兩個是 5.9 + macOS 13。
-    # macos-26 附的 Swift 6.x 三個都編得動；macos-14 的 Xcode 15 會直接拒讀
-    # tools-version 6.0 的 manifest。
+    # native/ 下三個 SPM package 的地板取最高的那個：OpenRoomApp 現在是
+    # swift-tools 5.9 + macOS 14（mlx-audio-swift 要求），openroom-diarize 是
+    # tools 6.0 + macOS 14。macos-26 附的 Swift 6.x 三個都編得動。
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
@@ -44,64 +42,11 @@ jobs:
             echo "::endgroup::"
           done
 
-  python:
-    # 測試沒碰 mlx / CoreML，所以跑 ubuntu：快、便宜，而且會逼我們別偷偷讓測試相依 macOS。
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      # feed 的 selfcheck 真的會叫 ffmpeg 生一段 sine 再餵完整條路徑。那條路徑就是
-      # 整個延遲測量的根據，用假的 wav 繞過等於 CI 不再驗它。
-      - name: Install ffmpeg
+      # 移植過來的純邏輯（Analyst 的 JSON 挖取與截斷、簡轉繁、PCM 轉換），加上
+      # 歷史紀錄那條路（寫一場會議再從清單讀回來、保留期限的界線）。
+      # 不碰模型、不收音、不打網路，所以 CI 跑得動。
+      - name: Self-check
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
-          ffmpeg -version | head -1
-
-      - uses: astral-sh/setup-uv@v6
-
-      - name: Install (minimal extras only)
-        run: |
-          set -euo pipefail
-          uv venv --python 3.12
-          # dev = pytest，eval = websockets/jiwer（tests 直接 import eval.feed、eval.metrics）。
-          # 故意不裝 diarize extra：pyannote 會拖進整套 torch，幾 GB、好幾分鐘，而測試
-          # 一行都沒碰到它——diarize_worker 的 torch/pyannote 是函式內 import。mlx 同理，
-          # 而且它只有 Apple Silicon 有 wheel，ubuntu runner 根本裝不起來。
-          uv pip install -e '.[dev,eval]'
-
-      - name: pytest
-        run: .venv/bin/python -m pytest -q
-
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@v5
-        with:
-          # 24：`npm run check` 是 `node src/lib/protocol.check.ts`，靠 Node 內建的
-          # type stripping 跑 TS，22.18 以下沒有這功能。
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-
-      - run: npm ci
-
-      # 只跑 package.json 裡真的有的 script。build 本身是 `tsc -b && vite build`，
-      # typecheck 已經包在裡面，不另外編一個。
-      - run: npm run lint
-      - run: npm run check
-      - run: npm run build
-
-      - name: Assert build output
-        # vite build 失敗會回非 0，但設定寫歪（outDir 打錯）會安靜地產出空目錄。
-        run: test -f dist/index.html || { echo "::error::vite build 沒吐出 app/dist/index.html"; exit 1; }
+          bin="$(swift build --package-path native/OpenRoomApp -c release --show-bin-path)"
+          "$bin/OpenRoomApp" --selfcheck

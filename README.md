@@ -22,13 +22,13 @@ So the first rule of this version is not model quality:
 | Item | Decision |
 |---|---|
 | Form | Single-machine personal tool. One meeting at a time, Apple Silicon only |
-| Backend | Python 3.11 |
-| Frontend | Tailwind + shadcn (UX redesigned) |
-| ASR | Qwen3-ASR MLX (on-device) |
-| Diarization | pyannote.audio, **in a separate process from ASR** |
+| Backend | None. Everything runs inside the Mac app |
+| Frontend | SwiftUI (`native/OpenRoomApp`) |
+| ASR | Qwen3-ASR via [mlx-audio-swift](https://github.com/Blaizzy/mlx-audio-swift) (on-device) |
+| Diarization | Sortformer streaming, same package |
 | Languages | Chinese and English both first-class, including intra-sentence mixing |
 | Audio source | macOS system audio capture (records Teams / Google Meet) |
-| Storage | Files under `runs/`. The original decision was SQLite; one machine running one meeting writes once and reads once, so a database earned nothing |
+| Storage | Files under `~/Library/Application Support/OpenRoom/runs/`. The original decision was SQLite; one machine running one meeting writes once and reads once, so a database earned nothing |
 | Not doing | Postgres, Docker, Cloud Run, JWT, CORS, rate limiting, simulator |
 
 ### Pass marks (carried over from the old PRD §4 NFR)
@@ -46,19 +46,22 @@ it, and does not need to.
 
 ## Build order
 
-1. ~~**eval harness**~~ done
-2. ~~audio → WS → written to disk~~ done (WS side done; macOS system audio capture still to do)
-3. ~~Qwen3-ASR MLX (separate process)~~ latency gate passed, **WER has not** (29.4%, gate 12%)
+1. ~~**eval harness**~~ done, then retired along with the Python backend
+2. ~~audio → written to disk~~ done
+3. ~~Qwen3-ASR MLX~~ latency gate passed, **WER has not** (29.4%, gate 12%)
 4. ~~frontend: transcript + health panel~~ done
 5. ~~live analysis layer (interview / discussion)~~ done, including transcript export
 6. **Run a real meeting on it** ← we are here. Chinese WER 37.6%, latency passes the gate, it is readable
 7. WER: feed proper nouns via `context`, `finalization_mode` (boundary duplication in the merge layer already fixed, worth 2pp)
-8. ~~pyannote speaker diarization (separate process)~~ done, DER not measured yet
-9. ~~macOS system audio capture~~ done: `native/openroom-capture`, ScreenCaptureKit grabs
-   the system output (no reliance on browser tab sharing, so the Teams desktop app is
-   captured too) and connects to the backend as a WS client straight off
-   `docs/protocol.md`. The first run needs authorization under System Settings >
-   Privacy & Security > Screen & System Audio Recording.
+8. ~~speaker diarization~~ done, DER not measured yet
+9. ~~macOS system audio capture~~ done: ScreenCaptureKit grabs the system output (no
+   reliance on browser tab sharing, so the Teams desktop app is captured too). The first
+   run needs authorization under System Settings > Privacy & Security > Screen & System
+   Audio Recording.
+10. ~~drop the Python backend~~ done. ASR, diarization and the analysis layer are all
+    Swift now, so there is no `uv venv`, no sidecar process, and no `HF_TOKEN` to obtain.
+    The measurements below were taken against the Python implementation and **have not
+    been re-measured** on the Swift one.
 
 The LLM layer, originally scheduled last, was moved up: the transcript is only raw
 material, **"give me supporting material and follow-up questions while the meeting is
@@ -74,47 +77,55 @@ something to label, which is why events are written to disk
 
 ## Running it
 
+Open the app. There is nothing to install, no virtualenv, no server to start, and no
+token to obtain.
+
 ```bash
-uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -e '.[eval,dev,diarize]' 'mlx-qwen3-asr>=0.3.5'
-
-export HF_TOKEN=hf_...                    # the diarization model is a gated repo, see below
-python -m openroom.server --language en     # omit --language to auto-detect (use this for mixed zh/en)
-
-cd app && npm install && npm run dev      # frontend → http://localhost:5173
+native/OpenRoomApp/build-app.sh   # → native/OpenRoomApp/OpenRoom.app
+open native/OpenRoomApp/OpenRoom.app
 ```
 
-The server warms the model up first (the first run compiles Metal kernels, about 46
-seconds) and **only sends `ready` once warmup is done**. Audio sent before that gets an
-`error` back instead of being quietly swallowed. The frontend **buffers** rather than
-discards until `ready`, then resends in seq order — what gets held back is the opening
-remarks, and once dropped they are gone.
+The models are pulled from Hugging Face on first use and cached (~1GB, in
+`~/.cache/huggingface/hub/mlx-audio/`, also reachable from the menu bar under *Show Model
+Files…*). The download runs **before** recording starts, with the byte count on screen and
+a Cancel button: a spinner that sits there for four minutes is indistinguishable from a
+hang, and buffering audio while 1GB comes down would blow the pre-`ready` buffer anyway.
+Quitting mid-download is safe, the partial file resumes. Downloaded weights are checked
+against the sha256 Hugging Face advertises for them — a truncated file or a proxy's error
+page otherwise passes the library's "one non-zero safetensors" test and dies later as an
+unreadable model error. Once the model is loaded the app **buffers** audio rather than
+discarding it — what gets held back is the opening remarks, and once dropped they are gone.
 
-Every session writes to `runs/<timestamp>-<meeting_id>/`: `audio.raw` (raw PCM),
-`events.jsonl` (**every** event sent to the frontend, with `_wall_ms` and `infer_ms`),
-`transcript.txt`. No SQLite — one machine, one meeting at a time, written once and read
-once.
+Transcription is required; speaker labels are not. If the diarizer's weights cannot be
+fetched the meeting still starts and says so in the pipeline-health column, because a
+transcript without speaker names is still a transcript.
 
-Choosing "system audio" in the frontend goes through the browser's screen-sharing
-dialog, and you **must tick "share tab audio"**; without it there is no audio track, and
-in that case it errors out rather than quietly recording silence.
+Every session writes to `~/Library/Application Support/OpenRoom/runs/<timestamp>-<meeting_id>/`:
+`events.jsonl` (**every** event the UI received, with `_wall_ms`), `transcript.txt`
+(appended line by line, so a crash keeps what was said), and `meeting.json` (the summary
+the history list reads). No SQLite — one machine, one meeting at a time, written once and
+read once. Past meetings are browsable in the app under *Past meetings*: read, export,
+reveal in Finder, delete to the Trash. Kept forever by default; text costs nothing and a
+meeting record that expires on its own is the worst default there is.
+
+Choosing "system audio" uses ScreenCaptureKit, which grabs the system output directly;
+the Teams and Meet desktop apps are captured the same as browser tabs. The first run
+needs authorization under System Settings > Privacy & Security > Screen & System Audio
+Recording. Without it the app says so and refuses to start rather than quietly recording
+silence.
 
 ### Speaker diarization
 
-pyannote runs in its own process and re-runs over "the whole audio so far", so speaker
-identities stay consistent over time. The model is a **gated repo**: accept the terms at
-<https://huggingface.co/pyannote/speaker-diarization-community-1> first, then set
-`HF_TOKEN`. Without it you get `speaker_error` rather than quietly losing speaker
-labels.
+Sortformer is a streaming model, so speaker labels arrive with the transcript instead of
+being backfilled, and speaker identity stays consistent across chunks because the
+streaming state carries it. It is not a gated repo, so there is no `HF_TOKEN` step.
 
-```bash
-python -m openroom.server --no-diarize            # turn off when measuring ASR latency, both sides fight over the same GPU
-python -m openroom.server --diarize-idle-ratio 12 # more conservative: steadier ASR, later speaker labels
-```
+The Python implementation used pyannote, which is not a streaming model: it had to
+re-run over "the whole audio so far" for identities to stay stable, which cost time
+proportional to meeting length and had to be duty-cycled so it would not starve ASR of
+the GPU. All of that is gone. `docs/measurements.md` describes that older arrangement.
 
-**Speaker labels are backfilled**, arriving tens of seconds behind the transcript; that
-is real-time traded for identity consistency. Measurements are in
-`docs/measurements.md`.
+Failures still emit `speaker_error` rather than quietly losing speaker labels.
 
 ### Analysis layer
 
@@ -126,14 +137,11 @@ so every round costs money and the trigger is throttled: it runs only once 400
 characters have accumulated and 25 seconds have passed since the last round, and skips
 if the previous round has not come back.
 
-```bash
-python -m openroom.server --scenario interview --llm-model claude-sonnet-5
-python -m openroom.server --no-web-search   # stop it from searching the web to verify
-```
+The scenario is picked in the app's setup screen, not on a command line.
 
-Analysis always queues behind audio capture (`nice -n 15`, background task, and the
-whole round yields if ASR falls more than 6 seconds behind). Every skip sends
-`insight_error`, so the reason is visible in the UI.
+Analysis always queues behind audio capture (`nice -n 15`, and it runs on its own Task
+so it never blocks capture or the transcript). Every skip sends `insight_error`, so the
+reason is visible in the UI.
 
 **The LLM provider is swappable**, selected with the `OPENROOM_LLM_PROVIDER` environment
 variable (default `claude-cli`, behavior unchanged):
@@ -145,9 +153,11 @@ variable (default `claude-cli`, behavior unchanged):
 | `anthropic-api` | Calls the Anthropic Messages API directly | `ANTHROPIC_API_KEY` |
 | `ollama` | Calls a local Ollama server | `OLLAMA_HOST` (default `http://localhost:11434`), `OPENROOM_OLLAMA_MODEL` (default `llama3.1`) |
 
+`open` does not pass environment variables through to the app, so use `--env`:
+
 ```bash
-OPENROOM_LLM_PROVIDER=anthropic-api ANTHROPIC_API_KEY=sk-ant-... python -m openroom.server
-OPENROOM_LLM_PROVIDER=ollama OPENROOM_OLLAMA_MODEL=llama3.1 python -m openroom.server
+open --env OPENROOM_LLM_PROVIDER=ollama --env OPENROOM_OLLAMA_MODEL=llama3.1 \
+     native/OpenRoomApp/OpenRoom.app
 ```
 
 All four providers behave the same way: any failure sends `insight_error`, none of them
@@ -155,19 +165,30 @@ quietly returns an empty result.
 
 ## The Mac app
 
-`native/OpenRoomApp` is the front end: a SwiftUI app that launches the Python backend in
-this repo and speaks the same WebSocket protocol the browser does. It is packaged by a
-shell script, not an Xcode project.
+`native/OpenRoomApp` **is** the whole product: a SwiftUI app that does capture, ASR,
+diarization and analysis in-process. It is packaged by a shell script, not an Xcode
+project.
 
 ```bash
 native/OpenRoomApp/build-app.sh   # → native/OpenRoomApp/OpenRoom.app
 ```
 
-The app is a front end and nothing else. ASR and diarization run in the Python backend
-in this repo, which the app starts for you — it looks for the repo at
-`~/workspaces/slab/openroom` unless `OPENROOM_REPO_PATH` says otherwise. Install the
-backend first (see [Running it](#running-it)); without it the app opens and then cannot
-transcribe anything.
+There is no backend to install and no repo path to configure. The pieces:
+
+| File | Does |
+|---|---|
+| `AudioCapture.swift` | ScreenCaptureKit system audio, or the microphone |
+| `ASREngine.swift` | Qwen3-ASR streaming transcription |
+| `Diarizer.swift` | Sortformer streaming speaker labels |
+| `Analyst.swift` | The LLM layer, four swappable providers |
+| `EventLog.swift` | `events.jsonl` + `transcript.txt` + `meeting.json` per meeting |
+| `MeetingArchive.swift` | Reads past meetings back, retention, delete to Trash |
+| `ModelStore.swift` | Model download with progress, sha256 verification, cancel |
+
+`OpenRoom --selfcheck` runs the pure-logic checks (JSON extraction and truncation in the
+analysis layer, Simplified→Traditional conversion, PCM conversion, one meeting written and
+read back through the history list, and the retention cutoff) without touching a model, the
+microphone, or the network. CI runs it on every push.
 
 ### The downloaded build will not open
 
@@ -314,37 +335,20 @@ The workflow refuses to publish rather than publish something broken: it fails i
 the generated appcast has no signed enclosure for this release, or if the feed came out with
 fewer items than it went in with.
 
-## eval harness
+## eval harness (retired)
 
 Without numbers there is no way to say whether the rewrite made anything better, so the
-harness came before any product code.
+harness came before any product code. It was Python: it fetched a corpus from YouTube,
+fed the audio into the WebSocket at real-time pace, and computed WER and P95 latency.
 
-```bash
-uv venv --python 3.11 && source .venv/bin/activate
-uv pip install -e '.[eval]'
+It went away with the Python backend — it drove `ws://127.0.0.1:8000`, and nothing
+listens there any more. **So the numbers in this README and in `docs/measurements.md`
+describe the Python implementation and have not been reproduced on the Swift one.** Say
+so plainly rather than letting stale figures pass as current.
 
-# fetch corpus: YouTube video → 16k mono wav + official subtitles as ground truth
-python -m eval.corpus fetch 'https://www.youtube.com/watch?v=...'
-
-# list the corpora already fetched
-python -m eval.corpus list
-
-# feed audio into the WS at real-time pace (same path the microphone takes), measure P95 latency
-python -m eval.feed corpus/<slug>/audio.wav --ws ws://127.0.0.1:8000/ws/test
-
-# compute WER (per-character for CJK, per-word for Latin, no language flag needed; comparing only the first N seconds requires reference.jsonl)
-python -m eval.metrics wer corpus/<slug>/reference.jsonl hypothesis.txt --until-sec 120
-```
-
-When measuring ASR, start the server with `--no-analyst` so you do not pay the LLM once
-per run.
-
-**Manual subtitles are not necessarily a transcript — they can be a translation** (been
-there: an English interview with Chinese subtitles, the resulting 80% WER was entirely
-fake). `fetch` compares against the video's language and warns; `--langs` sets the
-preferred order of subtitle languages.
-
-Corpora live in `corpus/`, not under version control.
+Rebuilding it against the Swift app means feeding a wav through `ASREngine` and diffing
+against a reference transcript; the old corpus tooling (`eval/corpus.py`, `eval/feed.py`,
+`eval/metrics.py`) is in git history if it is worth reviving.
 
 ### Test material
 
@@ -355,12 +359,8 @@ Corpora live in `corpus/`, not under version control.
 - **塞掐 Side Chat E417** (`6h6VsrclFTI`) — Chinese interview, mixed Chinese/English,
   **manual zh-TW subtitles** (a human transcript, more trustworthy than auto-generated
   ones). This is the baseline for Traditional Chinese WER.
-- **AMI Corpus** — full speaker annotations, the objective baseline for DER. To be wired
-  up when diarization gets there.
+- **AMI Corpus** — full speaker annotations, the objective baseline for DER.
 
-The feeder schedules chunk *k* for `t0 + k × 100 ms` itself rather than leaning on
-`ffmpeg -re`, whose accuracy moves between ffmpeg versions — the same three seconds of
-audio feeds in 2872 ms through ffmpeg 8 and 2484 ms through 6.1.1, and that difference
-lands directly in the latency figures. ffmpeg only decodes and resamples. The audio then
-takes exactly the same path as the microphone, so the latency being measured is real, not
-the fake numbers you get from running the model offline in a batch.
+**Manual subtitles are not necessarily a transcript — they can be a translation** (been
+there: an English interview with Chinese subtitles, the resulting 80% WER was entirely
+fake).
